@@ -31,14 +31,7 @@ const byte datapin = 7;
   Variables willed be stored as 200 (in particular 200='x');
   we have a max expression length in concern for memory.
 */
-//these arrays are global variables, I will try to at some point make them local.
-//Originally it made some sense to make them global but when you throw in a graphing mode it becomes kinda clunky, and less generalized.
-//expression holds the converted char array for evaluation purposes.  It's larger than the actual charExpression because of how we parse charExpression.
-//byte expression[80];
-//holds actual values for the expression.
-//float values[50];
-//the number corresponds to how many characters can fit onto certain amount of lines.
-//char charExpression[63];
+//made charindex global since that makes certain things easier.
 byte charindex = 0;
 byte MaxCharIndex = 63;
 //this variable exists to prevent constant button presses
@@ -577,6 +570,9 @@ void Shift_In(byte DataPin, byte ClockPin, byte index) {
 //Shift 1 corresponds to all number inputs excluding 8 and 9.
 //closest to microcontroller.
 void Shift1(byte data,char charExpression[]) {
+  if (DrawingGraph){
+    return;
+  }
   switch (data) {
     case 0b00000001:
       display.print('0');
@@ -615,6 +611,9 @@ void Shift1(byte data,char charExpression[]) {
 }
 //prints 8 and 9, then . and all normal operators.
 void Shift2(byte data,char charExpression[]) {
+  if (DrawingGraph){
+    return;
+  }
   switch (data) {
     case 0b00000001:
       display.print('8');
@@ -653,6 +652,9 @@ void Shift2(byte data,char charExpression[]) {
 }
 //mostly special functions like e or sin and (, )
 void Shift3(byte data,char charExpression[]) {
+  if (DrawingGraph){
+    return;
+  }
   switch (data) {
     case 0b00000001:
       display.print('(');
@@ -684,87 +686,35 @@ void Shift3(byte data,char charExpression[]) {
   }
   charindex++;
 }
-//reprint whatever the expression was.
-void printmainmenu(char charExpression[]) {
-  for (byte i = 0; i < charindex; i++) {
-    display.print(charExpression[i]);
-  }
-}
-byte SetbyteExpression(char charexp[],byte expression[],float values[], byte conversion[]){
-  byte Elength = 0;
-  Elength = CharParser(charexp,expression,values);
-  if (Elength == 255) {
-    Serial.println("FAIL");
-    clear(charexp);
-    return Elength;
-  }
 
-  //setup conversion and set all entries=0
-
-  //variable for postfixevaulation
-  byte length = 0;
-  length = postfixconversion(conversion, expression,Elength);
-  return length;
-}
-//enter method this is where we evaluate expressions.
-void Enter(char charExpression[]) {
-  byte expression[80];
-  float values[50];
-  byte conversion[80];
-    for (byte i = 0; i < 80; i++) {
-    conversion[i] = 0;
-    expression[i]=0;
-  }
-  for (byte i=0;i<50;i++){
-    values[i]=0;
-  }
-  byte length=SetbyteExpression(charExpression,expression,values,conversion);
-  delay(50);
-
-  if (EvaulatedOnce) {
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    printmainmenu(charExpression);
-    display.display();
-  }
-  display.println();
-  display.display();
-  EvaulatedOnce = true;
-  float temp = postfixevaulation(length, conversion,values);
-  display.print(temp);
-  delay(30);
-  ClearArrays(charExpression);
-}
-//Clear out the arrays.
-void clear(char charExpression[]) {
-  display.clearDisplay();
-  display.display();
-  display.setCursor(0, 0);
-  ClearArrays(charExpression);
-  EvaulatedOnce = false;
-}
-void ClearArrays(char charExpression[]) {
-  for (byte i = 0; i < MaxCharIndex; i++) {
-    charExpression[i] = 0;
-  }
-  charindex = 0;
-}
 //last register, farthest from microcontroller.
-//buttons for things that have special operations. These will call specialized functions and are placeholders for now.
+//buttons for things that have special operations. These will call specialized functions and most are placeholders for now.
 void Shift4(byte data,char charExpression[]) {
   switch (data) {
     //enter
     case 0b00000001:
+    if (GraphMode||DrawingGraph){
+      return;
+    }
       Enter(charExpression);
       display.println();
       break;
     //clear
     case 0b00000010:
+    if (DrawingGraph){
+      return;
+    }
       clear(charExpression);
+      if (GraphMode){
+        display.print("Y=");
+      }
       break;
     //Delete current character
     case 0b00000100:
       if (charindex > 0) {
+        if (DrawingGraph){
+          return;
+        }
         charExpression[charindex - 1] = 0;
         charindex--;
         display.setCursor(0, 0);
@@ -782,7 +732,8 @@ void Shift4(byte data,char charExpression[]) {
       //display.print("GRAPH");
       if (GraphMode){
         DrawingGraph=true;
-        DrawGraph();
+        DrawGraph(charExpression);
+        GraphMode=false;
       }
       break;
     case 0b00100000:
@@ -791,14 +742,13 @@ void Shift4(byte data,char charExpression[]) {
       DrawingGraph=false;
       break;
     case 0b01000000:
-      if (charindex == 63) {
+      if (charindex == 63||GraphingMode==true) {
         return;
       }
       //display.print("X");
       break;
     case 0b10000000:
     //Y=, lets you type in a function.
-      //display.print("POWER");
       GraphMode = true;
       DrawingGraph=false;
       break;
@@ -869,6 +819,74 @@ void checkforinputs(char charExpression[]) {
     isPressed = !areallLow();
   }
 }
+//reprint whatever the expression was.
+void printmainmenu(char charExpression[]) {
+  for (byte i = 0; i < charindex; i++) {
+    display.print(charExpression[i]);
+  }
+}
+//Calls charParser and PostFixConversion
+byte SetbyteExpression(char charexp[],float values[], byte conversion[]){
+  //we declare expression in here, for when we're done with PostFixConversion, it is no longer needed and we can save some memory.
+  byte expression[80];
+  byte Elength = 0;
+  setarrays(expression,values,conversion);
+  Elength = CharParser(charexp,expression,values);
+  if (Elength == 255) {
+    Serial.println("FAIL");
+    clear(charexp);
+    return Elength;
+  }
+  //variable for postfixevaulation that is how long to run it.
+  byte length = 0;
+  length = postfixconversion(conversion, expression,Elength);
+  return length;
+}
+//sets up arrays.  In C++ (according to the internet), not all values in a array are just set to 0, so you apparently have to do it manually, unlike C#/Java.
+void setarrays(byte expression[],float values[],byte conversion[]){
+    for (byte i = 0; i < 80; i++) {
+    conversion[i] = 0;
+    expression[i]=0;
+  }
+  for (byte i=0;i<50;i++){
+    values[i]=0;
+  }
+}
+//enter method this is where we evaluate expressions.
+void Enter(char charExpression[]) {
+  float values[50];
+  byte conversion[80];
+  byte length=SetbyteExpression(charExpression,values,conversion);
+  delay(50);
+
+  if (EvaulatedOnce) {
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    printmainmenu(charExpression);
+    display.display();
+  }
+  display.println();
+  display.display();
+  EvaulatedOnce = true;
+  float temp = postfixevaulation(length, conversion,values);
+  display.print(temp);
+  delay(30);
+  ClearcharExpression(charExpression);
+}
+//Clear out the arrays.
+void clear(char charExpression[]) {
+  display.clearDisplay();
+  display.display();
+  display.setCursor(0, 0);
+  ClearcharExpression(charExpression);
+  EvaulatedOnce = false;
+}
+void ClearcharExpression(char charExpression[]) {
+  for (byte i = 0; i < MaxCharIndex; i++) {
+    charExpression[i] = 0;
+  }
+  charindex = 0;
+}
 //the default screen mode. For doing arithmetic operations alone
 void MainMode() {
   display.display();
@@ -883,9 +901,7 @@ void MainMode() {
 //Placeholder:  Meant for user to type in functions.
 void GraphingMode() {
   char charExpression[63];
-  for (byte i=0;i<MaxCharIndex;i++){
-    charExpression[i]=0;
-  }
+  ClearcharExpression(charExpression);
   display.setCursor(0, 0);
   display.print("Y=");
   //this one block is for when I can get the FRAM chips to work.  They will save the char arrays and we print them out from reading the chips.
@@ -903,11 +919,74 @@ void GraphingMode() {
     checkforinputs(charExpression);
   }
 }
-//placeholder: Will draw graph.
-void DrawGraph() {
-  //while ()
+void convertXsToIndices(byte conversion[],byte indices[]){
+  byte largestindex=0;
+  for (byte i=0;i<80;i++){
+    if (conversion[i]<200){
+      largestindex=conversion[i];
+    }
+  }
+  //need to start at next index.
+  largestindex++;
+  byte tempindex=largestindex;
+  for (byte i=0;i<80;i++){
+    if (conversion[i]==200){
+      conversion[i]=tempindex;
+      tempindex++;
+    }
+  }
+  indices[0]=largestindex;
+  indices[1]=tempindex;
 }
-//setup and loop
+void PlaceXValues(float values[],byte indices[],float XValue){
+  for (byte i=indices[0];i<indices[1];i++){
+    values[i]=XValue;
+  }
+}
+//placeholder: Will draw graph.
+float GetResults(float results[],float XValues[],char charExpression[]){
+  float values[50];
+  byte conversion[80];
+  byte length=0;
+  length=SetbyteExpression(charExpression,values,conversion);
+  byte LargestIndices[2];
+  float SpecificXValue=-5;
+  convertXsToIndices(conversion,LargestIndices);
+  for (byte i=0;i<15;i++){
+    PlaceXValues(values,LargestIndices,SpecificXValue);
+    results[i]=postfixevaulation(length,conversion,values);
+    XValues[i]=SpecificXValue;
+    SpecificXValue++;
+  }
+}
+void DrawGraph(char charExpression[]) {
+  //might make these larger later.
+  float results[15];
+  float XValues[15];
+  display.clearDisplay();
+  //we need to setup where to draw things, the center of the screen is (64,32) since it's 128X64.
+  for (byte i=0;i<15;i++){
+    results[i]+32;
+    XValues[i]+64;
+  }
+  //later there will be some sort of zoom factor and we can multiply by it to get a larger or smaller view of the graph.
+  /*
+    all we're doing when we do that is scaling the standard matrix of R^2 and scaling the pivot positions of the identity matrix by some constant c
+    We can also do shifting by adding by some arbitary constant to get a certain view of the screen.  
+    You can think of the screen as the carteisian product of NU{0}XNU{0}, since the screen can only draw at a positive integer and not a floating point number
+  */
+  //only need to sum up to 14, if we go to i=15, we will go out of bounds on the arrays
+  for (byte i=0;i<14;i++){
+    //will probably need this conditional or something related to make sure we don't get weird drawing errors, Can't test right now not near the actual microcontroller.
+    //if (results[i]<64&&results[i]>0){
+  display.drawLine((int)XValues[i],(int)results[i]+0.5f,(int)XValues[i+1],(int)results[i+1]+0.5f,WHITE);
+    //}
+  }
+  while (DrawingGraph){
+
+  }
+}
+//setup
 void setup() {
   Serial.begin(115200);
   //wait for serial monitor
@@ -933,7 +1012,7 @@ void setup() {
   //debugging purposes only, tells me when the program actually begins.
   Serial.println("Start");
 }
-
+//loop
 void loop() {
   if (!inGraphingMode){
     GraphingMode();
