@@ -57,8 +57,8 @@ public:
     toppointer = -1;
     size = givensize;
     stack[size];
-    for (byte i=0;i<size;i++){
-      stack[i]=0;
+    for (byte i = 0; i < size; i++) {
+      stack[i] = 0;
     }
   }
   //Push value onto stack
@@ -132,7 +132,7 @@ for other special functions/operators I will use some number >=200 for recongizi
 I probably will at some point make this a library to make this code file nicer to read.
 */
 //charexpression was what the user typed, expression is the conversion into something easier to read for a computer, and values stores the actual values that were typed into the char array.
-byte CharParser(char charExpression[],byte expression[],float values[]) {
+byte CharParser(char charExpression[], byte expression[], float values[]) {
   //index for values[].  This is so we know where to put values in values[]
   byte Findex = 0;
   //index for expression[].  This is so we know where to put the indices of the float array values[] and where operators are suppose to be.
@@ -149,11 +149,18 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
   byte start = 0;
   //byte Charindex=GetUsedLength();
   if (charExpression[0] == 40) {
-    while (charExpression[start] == 40 && start < charindex) {
+      expression[Eindex] = 253;
+      Eindex++;
+  }
+    /*while (charExpression[start] == 40 && start < charindex) {
       expression[Eindex] = 253;
       start++;
       Eindex++;
     }
+  }*/
+  if (charExpression[0] == 'x') {
+    expression[Eindex] = 200;
+    Eindex++;
   }
   //run until we reach the end of the chararray or where we last entered on the array, which ever is closer.
   //NOTE if you see "return 255", 255 is for detecting that something went wrong, 255 is never used for anything so I made it for telling the enter method to stop and print to Serial monitor.
@@ -188,9 +195,11 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
         return 255;
       }
     }
-    if (i + 1 == charindex || charExpression[i + 1] == 0) {
-      convertnumber(temp, i + 1, decimalpoint, Findex, isNegative,charExpression,values);
+    if ((i + 1 == charindex || charExpression[i + 1] == 0) && charExpression[i] != 'x') {
+      convertnumber(temp, i + 1, decimalpoint, Findex, isNegative, charExpression, values);
       expression[Eindex] = Findex;
+      break;
+    } else if (i + 1 == charindex && charExpression[i] == 'x') {
       break;
     }
     //This switch check for the next character to see if it's an operator.
@@ -199,62 +208,103 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
       //setexpression adds the number we've been parsing and then places an operator after it in expression[];
       //we manually update the values Eindex and Findex
       case '+':
-        Eindex = setexpression(249, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
-        Findex++;
+        if (charExpression[i] != 'x') {
+          Eindex = setexpression(249, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Findex++;
+        } else {
+          expression[Eindex] = 249;
+          Eindex++;
+        }
         //reset firstdigit to be true and start searching again for the first digit
         firstdigit = true;
         //value for decimal point for when we start searching for a new number
         decimalpoint = 255;
+
         break;
         //subtracting is the same as by adding the negative of whatever you were going to subtract.
         //since we look for the minus sign on the next pass we get the correct value.
       case '-':
-        if (!firstdigit){
-        Eindex = setexpression(249, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
-        firstdigit = true;
-        decimalpoint = 255;
-        Findex++;
-        //if the next character after '-' then we add an extra value, -1 and add operator * (250) and then put down the left parthese.
-        if (i + 2 < charindex && charExpression[i + 2] == '(') {
+        if (!firstdigit) {
+          if (charExpression[i] != 'x') {
+            Eindex = setexpression(249, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+            Findex++;
+          } else {
+            expression[Eindex] = 249;
+            Eindex++;
+          }
+          firstdigit = true;
+          decimalpoint = 255;
+          //if the next character after '-' then we add an extra value, -1 and add operator * (250) and then put down the left parthese.
+          if (i + 2 < charindex && (charExpression[i + 2] == '(' || charExpression[i + 2] == 'x')) {
+            expression[Eindex] = Findex;
+            values[Findex] = -1;
+            Findex++;
+            expression[Eindex + 1] = 250;
+            if (charExpression[i + 2] == '(') {
+              expression[Eindex + 2] = 253;
+            }
+            //That is charExpression[i+2]='x'.
+            else {
+              expression[Eindex + 2] = 200;
+            }
+            Eindex += 3;
+            i++;
+          }
+        } else if (i + 2 < charindex && (charExpression[i + 2] == '(' || charExpression[i + 2] == 'x')) {
           expression[Eindex] = Findex;
           values[Findex] = -1;
           Findex++;
           expression[Eindex + 1] = 250;
-          expression[Eindex + 2] = 253;
+          if (charExpression[i + 2] == '(') {
+            expression[Eindex + 2] = 253;
+          }
+          //That is charExpression[i+2]='x'.
+          else {
+            expression[Eindex + 2] = 200;
+          }
           Eindex += 3;
           i++;
         }
-        }
-        else if (i + 2 < charindex &&charExpression[i+2]=='('){
-          expression[Eindex] = Findex;
-          values[Findex] = -1;
-          Findex++;
-          expression[Eindex + 1] = 250;
-          expression[Eindex + 2] = 253;
-          Eindex += 3;
-          i++;
+        if (charExpression[i]=='x'){
+          expression[Eindex]=249;
+          Eindex++;
         }
         break;
         //identical to '+' case but * has value 250
       case '*':
-        Eindex = setexpression(250, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
+        if (charExpression[i] != 'x') {
+          Eindex = setexpression(250, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Findex++;
+        } else {
+          expression[Eindex] = 250;
+          Eindex++;
+        }
         firstdigit = true;
         decimalpoint = 255;
-        Findex++;
         break;
         //identical to '+' case but / has value 251
       case '/':
-        Eindex = setexpression(251, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
+        if (charExpression[i] != 'x') {
+          Eindex = setexpression(251, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Findex++;
+        } else {
+          expression[Eindex] = 251;
+          Eindex++;
+        }
         firstdigit = true;
         decimalpoint = 255;
-        Findex++;
         break;
         //identical to '+' case but has value 252
       case '^':
-        Eindex = setexpression(252, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
+        if (charExpression[i] != 'x') {
+          Eindex = setexpression(252, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Findex++;
+        } else {
+          expression[Eindex] = 252;
+          Eindex++;
+        }
         firstdigit = true;
         decimalpoint = 255;
-        Findex++;
         break;
         //'(' is unfortunately a slight annoyance when parsing, so this code looks less nice.  I didn't make a bunch of new methods since it's mainly special cases related to '('.
       case '(':
@@ -272,23 +322,36 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
             expression[Eindex + 1] = 250;
             Eindex += 2;
           }
+          else if (charExpression[temp]=='x'){
+            expression[Eindex]=250;
+            Eindex++;
+          }
           expression[Eindex] = 253;
           Eindex++;
         } else {
-          Eindex = setexpression(253, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
-          //Eindex+=3;
-          Findex++;
+          if (charExpression[i] != 'x') {
+            Eindex = setexpression(253, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+            Findex++;
+          } else {
+            expression[Eindex] = 253;
+            Eindex++;
+          }
         }
         firstdigit = true;
         decimalpoint = 255;
         break;
       case ')':
         //this is when you have weird results like ")1" or ")2", other calculators I tested don't accept these as valid (or just ignore it);
-        if (i + 1 != 19 && (charExpression[i + 1] >= 48 && charExpression[i + 1] <= 57)) {
+        if (i + 1 != 63 && (charExpression[i + 1] >= 48 && charExpression[i + 1] <= 57)) {
           return;
         } else {
-          Eindex = setexpression(254, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
-          Findex++;
+          if (charExpression[i] != 'x') {
+            Eindex = setexpression(254, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+            Findex++;
+          } else {
+            expression[Eindex] = 254;
+            Eindex++;
+          }
           //this skips ')' in the char array and goes to the next spot.
           //which may or may not be an operator. if not, then we end the method and throw out it's invalid.
           //otherwise start at the new operator and work from there.
@@ -296,7 +359,7 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
           //and on the next pass we start at +.
           i++;
           if (charExpression[i + 1] != ')') {
-            Eindex = whichoperator(charExpression[i + 1], Eindex,expression);
+            Eindex = whichoperator(charExpression[i + 1], Eindex, expression);
           } else {
             while (i + 1 != charindex && charExpression[i + 1] == ')') {
               expression[Eindex] = 254;
@@ -308,13 +371,49 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
         firstdigit = true;
         decimalpoint = 255;
         break;
+      case 'x':
+        //that is we're right next to our starting point
+        if (temp + 1 == i + 1) {
+          //if the distance is one, then the previous index was either a single digit number or operator.
+          //we do nothing for an operator since the previous cases place them down already.
+          if (charExpression[temp] <= 57 && charExpression[temp] >= 48) {
+            expression[Eindex] = Findex;
+            values[Findex] = (float)(charExpression[temp] - 48);
+            if (isNegative) {
+              values[Findex] *= -1;
+            }
+            Findex++;
+            expression[Eindex + 1] = 250;
+            Eindex += 2;
+          }
+          expression[Eindex] = 200;
+          Eindex++;
+        } else {
+          Eindex = setexpression(200, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Findex++;
+        }
+        firstdigit = true;
+        decimalpoint = 255;
+        break;
+    }
+  }
+  Serial.print("Expression:");
+  for (byte i = 0; i < 7; i++) {
+    if (expression[i]>200){
+      Serial.print("!");
+    }
+    else if (expression[i]==200){
+      Serial.print("x");
+    }
+    else {
+    Serial.print(expression[i]);
     }
   }
   //needed to know how long to run postfixconversion method.
   return Eindex + 1;
 }
 //this method actual converts each number in the char array into it's actual value into a floating point number (e.g if you have 21+32, this method will convert 21 and 32 correctly and put it into a float value).
-void convertnumber(byte first, byte last, byte decimalpoint, byte floatindex, bool isNegative,char charExpression[],float values[]) {
+void convertnumber(byte first, byte last, byte decimalpoint, byte floatindex, bool isNegative, char charExpression[], float values[]) {
   //if there is no decimal simply set last=decimalpoint
   if (decimalpoint == 255) {
     decimalpoint = last;
@@ -368,7 +467,7 @@ bool validness(char tempchar) {
   return isvalid;
 }
 //check for an operator to put it in expression[index];  Exists for special cases of ')'.
-int whichoperator(char OP, byte index,byte expression[]) {
+int whichoperator(char OP, byte index, byte expression[]) {
   switch (OP) {
     case '+':
       expression[index] = 249;
@@ -391,18 +490,21 @@ int whichoperator(char OP, byte index,byte expression[]) {
       index++;
       expression[index] = 253;
       break;
+    case 'x':
+      expression[index] = 250;
+      index++;
+      expression[index] = 200;
+      break;
   }
   //need to update index
   index++;
   return index;
 }
 //This is just a method that
-byte setexpression(byte OP, byte temp, byte last, byte decimal, byte Findex, bool isNegative, byte Eindex, char charExpression[],byte expression[],float values[]) {
-  convertnumber(temp, last, decimal, Findex, isNegative,charExpression,values);
+byte setexpression(byte OP, byte temp, byte last, byte decimal, byte Findex, bool isNegative, byte Eindex, char charExpression[], byte expression[], float values[]) {
+  convertnumber(temp, last, decimal, Findex, isNegative, charExpression, values);
 
   expression[Eindex] = Findex;
-  if (OP != 249) {
-  }
   Findex++;
   Eindex++;
   if (OP == 253) {
@@ -433,8 +535,8 @@ byte PopOPS(byte index, ByteStack *stack, byte conversion[], bool endofpar) {
   }
   return index;
 }
-//converts regular infix expression into postfix-notation.  
-byte postfixconversion(byte conversion[], byte expression[],byte ELength) {
+//converts regular infix expression into postfix-notation.
+byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
   ByteStack *stack = new ByteStack(30);
   byte index = 0;
   bool seenzero = false;
@@ -500,9 +602,10 @@ byte operation(byte Left, byte OP, byte Right, float tempvalues[]) {
   return Left;
 }
 //Postfix evaulation method.  This is how we evaluate things in postfix correctly.
-float postfixevaulation(byte length, byte conversion[],float values[]) {
-  ByteStack* stack=new ByteStack(length);
+float postfixevaulation(byte length, byte conversion[], float values[]) {
+  ByteStack *stack = new ByteStack(length);
   float tempvalues[length];
+  byte FirstIndex = conversion[0];
   for (byte i = 0; i < length; i++) {
     tempvalues[i] = values[i];
   }
@@ -521,7 +624,7 @@ float postfixevaulation(byte length, byte conversion[],float values[]) {
   }
   delete stack;
   stack = nullptr;
-  return tempvalues[0];
+  return tempvalues[FirstIndex];
 }
 //Shift Registers and other physical components (that is everything here is relevant to the actual wiring and inputs of the buttons and microcontroller etc);
 
@@ -547,8 +650,8 @@ void Shift_In(byte DataPin, byte ClockPin, byte index) {
 //if a line is commented out then it doesn't function yet and is planned on being worked on at some point.
 //Shift 1 corresponds to all number inputs excluding 8 and 9.
 //closest to microcontroller.
-void Shift1(byte data,char charExpression[]) {
-  if (DrawingGraph){
+void Shift1(byte data, char charExpression[]) {
+  if (DrawingGraph) {
     return;
   }
   switch (data) {
@@ -588,8 +691,8 @@ void Shift1(byte data,char charExpression[]) {
   charindex++;
 }
 //prints 8 and 9, then . and all normal operators.
-void Shift2(byte data,char charExpression[]) {
-  if (DrawingGraph){
+void Shift2(byte data, char charExpression[]) {
+  if (DrawingGraph) {
     return;
   }
   switch (data) {
@@ -630,8 +733,8 @@ void Shift2(byte data,char charExpression[]) {
 }
 //mostly special functions like e or sin and (, )
 //the special functions are planned for later.
-void Shift3(byte data,char charExpression[]) {
-  if (DrawingGraph){
+void Shift3(byte data, char charExpression[]) {
+  if (DrawingGraph) {
     return;
   }
   switch (data) {
@@ -668,37 +771,37 @@ void Shift3(byte data,char charExpression[]) {
 
 //last register, farthest from microcontroller.
 //buttons for things that have special operations. These will call specialized functions and most are placeholders for now.
-void Shift4(byte data,char charExpression[]) {
+void Shift4(byte data, char charExpression[]) {
   switch (data) {
     //enter
     case 0b00000001:
-    if (GraphMode||DrawingGraph){
-      return;
-    }
+      if (GraphMode || DrawingGraph) {
+        return;
+      }
       Enter(charExpression);
       display.println();
       break;
     //clear
     case 0b00000010:
-    if (DrawingGraph){
-      return;
-    }
+      if (DrawingGraph) {
+        return;
+      }
       clear(charExpression);
-      if (GraphMode){
+      if (GraphMode) {
         display.print("Y=");
       }
       break;
     //Delete current character
     case 0b00000100:
       if (charindex > 0) {
-        if (DrawingGraph){
+        if (DrawingGraph) {
           return;
         }
         charExpression[charindex - 1] = 0;
         charindex--;
         display.setCursor(0, 0);
         display.clearDisplay();
-        if (GraphMode){
+        if (GraphMode) {
           display.print("Y=");
         }
         printmainmenu(charExpression);
@@ -709,29 +812,31 @@ void Shift4(byte data,char charExpression[]) {
       break;
     case 0b00010000:
       //display.print("GRAPH");
-      if (GraphMode){
-        DrawingGraph=true;
+      if (GraphMode) {
+        DrawingGraph = true;
         DrawGraph(charExpression);
-        GraphMode=false;
+        GraphMode = false;
       }
       break;
       //exit current mode that is not the normal calculation mode.
     case 0b00100000:
       GraphMode = false;
-      DrawingGraph=false;
+      DrawingGraph = false;
       display.clearDisplay();
       display.display();
       break;
     case 0b01000000:
-      if (charindex == 63||GraphingMode==true) {
+      if (charindex == 63 || GraphingMode == true) {
         return;
       }
-      //display.print("X");
+      display.print("x");
+      charExpression[charindex] = 'x';
+      charindex++;
       break;
     case 0b10000000:
-    //Y=, lets you type in a function.
+      //Y=, lets you type in a function.
       GraphMode = true;
-      DrawingGraph=false;
+      DrawingGraph = false;
       break;
   }
 }
@@ -745,16 +850,16 @@ void whichshift(byte data, byte ShiftRegisterNumber, char charExpression[]) {
   //this switch makes it easier to check what's being inputted and to abstract what shift is being read.
   switch (ShiftRegisterNumber) {
     case 0:
-      Shift1(data,charExpression);
+      Shift1(data, charExpression);
       break;
     case 1:
-      Shift2(data,charExpression);
+      Shift2(data, charExpression);
       break;
     case 2:
-      Shift3(data,charExpression);
+      Shift3(data, charExpression);
       break;
     case 3:
-      Shift4(data,charExpression);
+      Shift4(data, charExpression);
       break;
   }
   //we need to only display after the user types something.  If they don't type anything this isn't ran. (that way we're not running it in void loop()).
@@ -806,60 +911,81 @@ void printmainmenu(char charExpression[]) {
   }
 }
 //for shifting expression array
-void shiftarray(byte expression[],byte Elength,byte Start){
-  expression[Start]=expression[Start+1];
-  expression[Start+1]=0;
-  expression[Start+2]=0;
-  for (byte i=Start+1;i<Elength-2;i++){
-    expression[i]=expression[i+2];
+void shiftarray(byte expression[], byte Elength, byte Start) {
+  expression[Start] = expression[Start + 1];
+  expression[Start + 1] = 0;
+  expression[Start + 2] = 0;
+  for (byte i = Start + 1; i < Elength - 2; i++) {
+    expression[i] = expression[i + 2];
   }
 }
 //this exists as a way to remove things like "(-5)" for if we don't do this things like 5+(-2) do not result correctly (before it would output 3 or a nonsense value);
-byte removesinglepartheses(byte expression[],byte Elength){
-  byte numofremovedpartheses=0;
-  for (byte i=0;i<Elength;i++){
-    if (expression[i]==253&&i+2<Elength&&expression[i+2]==254){
-      shiftarray(expression,Elength,i);
-      numofremovedpartheses+=2;
+byte removesinglepartheses(byte expression[], byte Elength) {
+  byte numofremovedpartheses = 0;
+  for (byte i = 0; i < Elength; i++) {
+    if (expression[i] == 253 && i + 2 < Elength && expression[i + 2] == 254) {
+      shiftarray(expression, Elength, i);
+      numofremovedpartheses += 2;
     }
   }
-  return Elength-numofremovedpartheses;
+  return Elength - numofremovedpartheses;
 }
 //Calls charParser and PostFixConversion
-byte SetbyteExpression(char charexp[],float values[], byte conversion[]){
+byte SetbyteExpression(char charexp[], float values[], byte conversion[]) {
   //we declare expression in here, for when we're done with PostFixConversion, it is no longer needed and we can save some memory.
   byte expression[80];
   byte Elength = 0;
-  setarrays(expression,values,conversion);
-  Elength = CharParser(charexp,expression,values);
+  setarrays(expression, values, conversion);
+  Elength = CharParser(charexp, expression, values);
   if (Elength == 255) {
     Serial.println("FAIL");
     clear(charexp);
     return Elength;
   }
-  Elength=removesinglepartheses(expression,Elength);
+  Elength = removesinglepartheses(expression, Elength);
   //variable for postfixevaulation that is how long to run it.
   byte length = 0;
-  length = postfixconversion(conversion, expression,Elength);
+  length = postfixconversion(conversion, expression, Elength);
   return length;
 }
 //sets up arrays.  In C++ (according to the internet), not all values in a array are just set to 0, so you apparently have to do it manually, unlike C#/Java.
-void setarrays(byte expression[],float values[],byte conversion[]){
-    for (byte i = 0; i < 80; i++) {
+void setarrays(byte expression[], float values[], byte conversion[]) {
+  for (byte i = 0; i < 80; i++) {
     conversion[i] = 0;
-    expression[i]=0;
+    expression[i] = 0;
   }
-  for (byte i=0;i<50;i++){
-    values[i]=0;
+  for (byte i = 0; i < 50; i++) {
+    values[i] = 0;
   }
 }
 //enter method this is where we evaluate expressions.
 void Enter(char charExpression[]) {
+  Serial.print("charindex");
+  Serial.println(charindex);
+  Serial.print("CHAREXP");
+  for (byte i = 0; i < charindex; i++) {
+  }
+  Serial.println();
   float values[50];
   byte conversion[80];
-  byte length=SetbyteExpression(charExpression,values,conversion);
+  byte length = SetbyteExpression(charExpression, values, conversion);
   delay(50);
-
+  byte LargestIndices[2];
+  Serial.println("BEFORE INDICES");
+  for (byte i = 0; i < 7; i++) {
+    Serial.print(conversion[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
+  convertXsToIndices(conversion, LargestIndices);
+  Serial.println("AFTER");
+  for (byte i = 0; i < 7; i++) {
+    Serial.print(conversion[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
+  //just give x values a default value for when you press enter.  For testing
+  PlaceXValues(values, LargestIndices, 2);
   if (EvaulatedOnce) {
     display.clearDisplay();
     display.setCursor(0, 0);
@@ -869,7 +995,7 @@ void Enter(char charExpression[]) {
   display.println();
   display.display();
   EvaulatedOnce = true;
-  float temp = postfixevaulation(length, conversion,values);
+  float temp = postfixevaulation(length, conversion, values);
   display.print(temp);
   delay(30);
   ClearcharExpression(charExpression);
@@ -892,10 +1018,10 @@ void ClearcharExpression(char charExpression[]) {
 void MainMode() {
   display.display();
   char charExpression[63];
-  for (byte i=0;i<MaxCharIndex;i++){
-    charExpression[i]=0;
+  for (byte i = 0; i < MaxCharIndex; i++) {
+    charExpression[i] = 0;
   }
-  while (!GraphMode){
+  while (!GraphMode) {
     checkforinputs(charExpression);
   }
 }
@@ -920,43 +1046,43 @@ void GraphingMode() {
     checkforinputs(charExpression);
   }
 }
-void convertXsToIndices(byte conversion[],byte indices[]){
-  byte largestindex=0;
-  for (byte i=0;i<80;i++){
-    if (conversion[i]<200){
-      largestindex=conversion[i];
+void convertXsToIndices(byte conversion[], byte indices[]) {
+  byte largestindex = 0;
+  for (byte i = 0; i < 80; i++) {
+    if (conversion[i] < 200 && largestindex < conversion[i]) {
+      largestindex = conversion[i];
     }
   }
   //need to start at next index.
   largestindex++;
-  byte tempindex=largestindex;
-  for (byte i=0;i<80;i++){
-    if (conversion[i]==200){
-      conversion[i]=tempindex;
+  byte tempindex = largestindex;
+  for (byte i = 0; i < 80; i++) {
+    if (conversion[i] == 200) {
+      conversion[i] = tempindex;
       tempindex++;
     }
   }
-  indices[0]=largestindex;
-  indices[1]=tempindex;
+  indices[0] = largestindex;
+  indices[1] = tempindex;
 }
-void PlaceXValues(float values[],byte indices[],float XValue){
-  for (byte i=indices[0];i<indices[1];i++){
-    values[i]=XValue;
+void PlaceXValues(float values[], byte indices[], float XValue) {
+  for (byte i = indices[0]; i < indices[1]; i++) {
+    values[i] = XValue;
   }
 }
 //placeholder: Will draw graph.
-float GetResults(float results[],float XValues[],char charExpression[]){
+float GetResults(float results[], float XValues[], char charExpression[]) {
   float values[50];
   byte conversion[80];
-  byte length=0;
-  length=SetbyteExpression(charExpression,values,conversion);
+  byte length = 0;
+  length = SetbyteExpression(charExpression, values, conversion);
   byte LargestIndices[2];
-  float SpecificXValue=-5;
-  convertXsToIndices(conversion,LargestIndices);
-  for (byte i=0;i<15;i++){
-    PlaceXValues(values,LargestIndices,SpecificXValue);
-    results[i]=postfixevaulation(length,conversion,values);
-    XValues[i]=SpecificXValue;
+  float SpecificXValue = -5;
+  convertXsToIndices(conversion, LargestIndices);
+  for (byte i = 0; i < 15; i++) {
+    PlaceXValues(values, LargestIndices, SpecificXValue);
+    results[i] = postfixevaulation(length, conversion, values);
+    XValues[i] = SpecificXValue;
     SpecificXValue++;
   }
 }
@@ -966,9 +1092,9 @@ void DrawGraph(char charExpression[]) {
   float XValues[15];
   display.clearDisplay();
   //we need to setup where to draw things, the center of the screen is (64,32) since it's 128X64.
-  for (byte i=0;i<15;i++){
-    results[i]+32;
-    XValues[i]+64;
+  for (byte i = 0; i < 15; i++) {
+    results[i] + 32;
+    XValues[i] + 64;
   }
   //later there will be some sort of zoom factor and we can multiply by it to get a larger or smaller view of the graph.
   /*
@@ -977,26 +1103,27 @@ void DrawGraph(char charExpression[]) {
     You can think of the screen as the carteisian product of NU{0}XNU{0}, since the screen can only draw at a positive integer and not a floating point number
   */
   //only need to sum up to 14, if we go to i=15, we will go out of bounds on the arrays
-  for (byte i=0;i<14;i++){
+  for (byte i = 0; i < 14; i++) {
     //will probably need this conditional or something related to make sure we don't get weird drawing errors, Can't test right now not near the actual microcontroller.
     //if (results[i]<64&&results[i]>0){
-  display.drawLine((int)XValues[i],(int)results[i]+0.5f,(int)XValues[i+1],(int)results[i+1]+0.5f,WHITE);
+    display.drawLine((int)XValues[i], (int)results[i] + 0.5f, (int)XValues[i + 1], (int)results[i + 1] + 0.5f, WHITE);
     //}
   }
   display.display();
-  while (DrawingGraph){
-
+  while (DrawingGraph) {
   }
 }
 //setup
 void setup() {
   Serial.begin(115200);
   //wait for serial monitor
-  while (!Serial);
+  while (!Serial)
+    ;
   //setup screen
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("SSD1306 allocation failed"));
-    for (;;);  // Don't proceed, loop forever
+    for (;;)
+      ;  // Don't proceed, loop forever
   }
   display.display();
   delay(2000);
@@ -1013,7 +1140,7 @@ void setup() {
 }
 //loop
 void loop() {
-  if (GraphMode){
+  if (GraphMode) {
     GraphingMode();
   }
   MainMode();
