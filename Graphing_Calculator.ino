@@ -40,7 +40,9 @@ bool isPressed = false;
 //needed for enter function.  Meant to help with printing the display again.
 bool EvaulatedOnce = false;
 //bool is here for when we add the graphing mode.  We need to have seperate menus so this is here for when the user presses the button that is assigned to "GRAPH";  See Shift4;
-bool inGraphingMode=false;
+bool isSaved = false;
+bool DrawingGraph = false;
+bool GraphMode = false;
 //stack class, needed for postfix evaulation and conversion.
 class ByteStack {
 public:
@@ -157,9 +159,6 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
   //NOTE if you see "return 255", 255 is for detecting that something went wrong, 255 is never used for anything so I made it for telling the enter method to stop and print to Serial monitor.
   //will make better error handling later on.
   for (byte i = start; i < charindex; i++) {
-    //delay(1);
-    //Serial.print("EIndex: ");
-    //Serial.println(Eindex);
     //this conditional exists to check if we're at our first digit or not for a number.
     if (firstdigit) {
       //if we encounter a number (assci values between 48 and 57) set firstdigit=false;
@@ -201,7 +200,6 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
       //we manually update the values Eindex and Findex
       case '+':
         Eindex = setexpression(249, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
-        //Eindex+=2;
         Findex++;
         //reset firstdigit to be true and start searching again for the first digit
         firstdigit = true;
@@ -215,7 +213,6 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
         Eindex = setexpression(249, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
         firstdigit = true;
         decimalpoint = 255;
-        //Eindex+=2;
         Findex++;
         //if the next character after '-' then we add an extra value, -1 and add operator * (250) and then put down the left parthese.
         if (i + 2 < charindex && charExpression[i + 2] == '(') {
@@ -243,7 +240,6 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
         Eindex = setexpression(250, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
         firstdigit = true;
         decimalpoint = 255;
-        //Eindex+=2;
         Findex++;
         break;
         //identical to '+' case but / has value 251
@@ -251,7 +247,6 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
         Eindex = setexpression(251, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
         firstdigit = true;
         decimalpoint = 255;
-        //Eindex+=2;
         Findex++;
         break;
         //identical to '+' case but has value 252
@@ -259,7 +254,6 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
         Eindex = setexpression(252, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
         firstdigit = true;
         decimalpoint = 255;
-        //Eindex+=2;
         Findex++;
         break;
         //'(' is unfortunately a slight annoyance when parsing, so this code looks less nice.  I didn't make a bunch of new methods since it's mainly special cases related to '('.
@@ -295,7 +289,6 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
         } else {
           Eindex = setexpression(254, temp, i + 1, decimalpoint, Findex, isNegative, Eindex,charExpression,expression,values);
           Findex++;
-          //Eindex+=2;
           //this skips ')' in the char array and goes to the next spot.
           //which may or may not be an operator. if not, then we end the method and throw out it's invalid.
           //otherwise start at the new operator and work from there.
@@ -317,6 +310,7 @@ byte CharParser(char charExpression[],byte expression[],float values[]) {
         break;
     }
   }
+  //needed to know how long to run postfixconversion method.
   return Eindex + 1;
 }
 //this method actual converts each number in the char array into it's actual value into a floating point number (e.g if you have 21+32, this method will convert 21 and 32 correctly and put it into a float value).
@@ -345,7 +339,7 @@ void convertnumber(byte first, byte last, byte decimalpoint, byte floatindex, bo
     values[floatindex] *= -1;
   }
 }
-//checking for invalid expressions
+//checking for invalid expressions will probably be moved into a larger error/exception handing method
 bool validness(char tempchar) {
   bool isvalid = true;
   switch (tempchar) {
@@ -419,7 +413,10 @@ byte setexpression(byte OP, byte temp, byte last, byte decimal, byte Findex, boo
   Eindex++;
   return Eindex;
 }
-//POSTFIX OPERATION
+/*POSTFIX OPERATION
+  This section of the code does the postfix conversion and evaulation of expressions.
+  The alogrithms that are used we're taught in my datastructures class (although we only went over how the alogrithm worked and how to do it by hand, not how to code it).
+*/
 //249=+,250=*,251=/,252=^,253=(,254=),255=STOP;
 //this method pops off the operators that are in the stack.
 byte PopOPS(byte index, ByteStack *stack, byte conversion[], bool endofpar) {
@@ -436,7 +433,7 @@ byte PopOPS(byte index, ByteStack *stack, byte conversion[], bool endofpar) {
   }
   return index;
 }
-//this follows the standard alogirthm for converting an expression into post fix notation.  Or at least the one I learned in my data structures class (we never actually went on to how you code it though!).
+//converts regular infix expression into postfix-notation.  
 byte postfixconversion(byte conversion[], byte expression[],byte ELength) {
   ByteStack *stack = new ByteStack(30);
   byte index = 0;
@@ -479,18 +476,12 @@ byte postfixconversion(byte conversion[], byte expression[],byte ELength) {
   }
   delete stack;
   stack = nullptr;
-  /*for (byte i = 0; i < 20; i++) {
-    Serial.print(conversion[i]);
-    Serial.print(" ");
-  }*/
   Serial.println();
   return index;
 }
 //This evaulates the two values that given from postfixevaulation();  We put the new value on the Left value;
 //once postfixevaulation reaches the end the 0th index will have the final result.  You can think of this as the final result sinking closer to the zeroth index.
 byte operation(byte Left, byte OP, byte Right, float tempvalues[]) {
-  //Serial.println(values[Left]);
-  //Serial.println(values[Right]);
   switch (OP) {
     case 249:
       tempvalues[Left] += tempvalues[Right];
@@ -514,24 +505,14 @@ float postfixevaulation(byte length, byte conversion[],float values[]) {
   float tempvalues[length];
   for (byte i = 0; i < length; i++) {
     tempvalues[i] = values[i];
-    //Serial.println(tempvalues[i]);
   }
-  //Serial.print("Length: ");
-  //Serial.println(length);
   for (byte i = 0; i < length; i++) {
     if (conversion[i] < 249) {
       stack->Push(conversion[i]);
-      /*Serial.print("Conversion: ");
-      Serial.println(conversion[i]);
-      Serial.print("ITH: ");
-      Serial.println(i);*/
     } else {
       byte Right = stack->Pop();
-      //Serial.println(Right);
       delay(5);
       byte Left = stack->Pop();
-
-      //Serial.println(Left);
       delay(50);
       stack->Push(operation(Left, conversion[i], Right, tempvalues));
       Serial.print("POP:");
@@ -540,13 +521,10 @@ float postfixevaulation(byte length, byte conversion[],float values[]) {
   }
   delete stack;
   stack = nullptr;
-  //float temp = tempvalues[0];
   return tempvalues[0];
 }
 //Shift Registers and other physical components (that is everything here is relevant to the actual wiring and inputs of the buttons and microcontroller etc);
-bool isSaved = false;
-bool DrawingGraph = false;
-bool GraphMode = false;
+
 //this method actually gets data from shift register
 void Shift_In(byte DataPin, byte ClockPin, byte index) {
   /*the shift register gives us 8 bits, if we read HIGH on a bit then write 1 for that specific index of the byte otherwise write 0 if LOW. This writes the binary value.
@@ -651,6 +629,7 @@ void Shift2(byte data,char charExpression[]) {
   charindex++;
 }
 //mostly special functions like e or sin and (, )
+//the special functions are planned for later.
 void Shift3(byte data,char charExpression[]) {
   if (DrawingGraph){
     return;
@@ -719,7 +698,7 @@ void Shift4(byte data,char charExpression[]) {
         charindex--;
         display.setCursor(0, 0);
         display.clearDisplay();
-        if (GraphingMode){
+        if (GraphMode){
           display.print("Y=");
         }
         printmainmenu(charExpression);
@@ -736,10 +715,12 @@ void Shift4(byte data,char charExpression[]) {
         GraphMode=false;
       }
       break;
+      //exit current mode that is not the normal calculation mode.
     case 0b00100000:
-      //display.print("EXIT");
       GraphMode = false;
       DrawingGraph=false;
+      display.clearDisplay();
+      display.display();
       break;
     case 0b01000000:
       if (charindex == 63||GraphingMode==true) {
@@ -784,7 +765,6 @@ bool areallLow() {
   for (byte j = 0; j < 4; j++) {
     Shift_In(datapin, clockpin, j);
     if (ShiftData[j] != 0) {
-      //Serial.println(ShiftData[j]);
       return false;
     }
   }
@@ -825,6 +805,26 @@ void printmainmenu(char charExpression[]) {
     display.print(charExpression[i]);
   }
 }
+//for shifting expression array
+void shiftarray(byte expression[],byte Elength,byte Start){
+  expression[Start]=expression[Start+1];
+  expression[Start+1]=0;
+  expression[Start+2]=0;
+  for (byte i=Start+1;i<Elength-2;i++){
+    expression[i]=expression[i+2];
+  }
+}
+//this exists as a way to remove things like "(-5)" for if we don't do this things like 5+(-2) do not result correctly (before it would output 3 or a nonsense value);
+byte removesinglepartheses(byte expression[],byte Elength){
+  byte numofremovedpartheses=0;
+  for (byte i=0;i<Elength;i++){
+    if (expression[i]==253&&i+2<Elength&&expression[i+2]==254){
+      shiftarray(expression,Elength,i);
+      numofremovedpartheses+=2;
+    }
+  }
+  return Elength-numofremovedpartheses;
+}
 //Calls charParser and PostFixConversion
 byte SetbyteExpression(char charexp[],float values[], byte conversion[]){
   //we declare expression in here, for when we're done with PostFixConversion, it is no longer needed and we can save some memory.
@@ -837,6 +837,7 @@ byte SetbyteExpression(char charexp[],float values[], byte conversion[]){
     clear(charexp);
     return Elength;
   }
+  Elength=removesinglepartheses(expression,Elength);
   //variable for postfixevaulation that is how long to run it.
   byte length = 0;
   length = postfixconversion(conversion, expression,Elength);
@@ -894,7 +895,7 @@ void MainMode() {
   for (byte i=0;i<MaxCharIndex;i++){
     charExpression[i]=0;
   }
-  while (!inGraphingMode){
+  while (!GraphMode){
     checkforinputs(charExpression);
   }
 }
@@ -982,6 +983,7 @@ void DrawGraph(char charExpression[]) {
   display.drawLine((int)XValues[i],(int)results[i]+0.5f,(int)XValues[i+1],(int)results[i+1]+0.5f,WHITE);
     //}
   }
+  display.display();
   while (DrawingGraph){
 
   }
@@ -1001,20 +1003,17 @@ void setup() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  //delay(2000);
   pinMode(latchpin, OUTPUT);
   pinMode(clockpin, OUTPUT);
   pinMode(datapin, INPUT);
   digitalWrite(clockpin, LOW);
-  //we call this to make sure every value in all three arrays is actually zero.  This is so we don't have random gabarage data in the arrays when they're made
-  //I learned in C++ (and C) that they don't do this for you already unlike Java and C#.
   display.clearDisplay();
-  //debugging purposes only, tells me when the program actually begins.
+  //debugging purposes only, tells me when the program actually begins.  Mainly when I have to restart the microcontroller and I want to compare outputs from previous uploads.
   Serial.println("Start");
 }
 //loop
 void loop() {
-  if (!inGraphingMode){
+  if (GraphMode){
     GraphingMode();
   }
   MainMode();
