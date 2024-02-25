@@ -33,7 +33,7 @@ const byte datapin = 7;
 */
 //made charindex global since that makes certain things easier.
 byte charindex = 0;
-byte MaxCharIndex = 63;
+const byte MaxCharIndex = 63;
 //this variable exists to prevent constant button presses
 //that is holding down the button doesn't repeatly write the same thing until you release all buttons you're holding down
 bool isPressed = false;
@@ -145,19 +145,10 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
   byte decimalpoint = 255;
   //bool is here to check if a value is negative when parsing.
   bool isNegative = false;
-  //start usually will be zero, but if we start with something like "(((..." it checks for those and adds them accordingly in the while loop below
-  byte start = 0;
-  //byte Charindex=GetUsedLength();
-  if (charExpression[0] == 40) {
+  if (charExpression[0] == '(') {
       expression[Eindex] = 253;
       Eindex++;
   }
-    /*while (charExpression[start] == 40 && start < charindex) {
-      expression[Eindex] = 253;
-      start++;
-      Eindex++;
-    }
-  }*/
   if (charExpression[0] == 'x') {
     expression[Eindex] = 200;
     Eindex++;
@@ -165,7 +156,7 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
   //run until we reach the end of the chararray or where we last entered on the array, which ever is closer.
   //NOTE if you see "return 255", 255 is for detecting that something went wrong, 255 is never used for anything so I made it for telling the enter method to stop and print to Serial monitor.
   //will make better error handling later on.
-  for (byte i = start; i < charindex; i++) {
+  for (byte i = 0; i < charindex; i++) {
     //this conditional exists to check if we're at our first digit or not for a number.
     if (firstdigit) {
       //if we encounter a number (assci values between 48 and 57) set firstdigit=false;
@@ -616,10 +607,7 @@ float postfixevaulation(byte length, byte conversion[], float values[]) {
       byte Right = stack->Pop();
       delay(5);
       byte Left = stack->Pop();
-      delay(50);
       stack->Push(operation(Left, conversion[i], Right, tempvalues));
-      Serial.print("POP:");
-      Serial.println(i);
     }
   }
   delete stack;
@@ -812,7 +800,7 @@ void Shift4(byte data, char charExpression[]) {
       break;
     case 0b00010000:
       //display.print("GRAPH");
-      if (GraphMode) {
+      if (GraphMode&&charindex>0) {
         DrawingGraph = true;
         DrawGraph(charExpression);
         GraphMode = false;
@@ -1027,10 +1015,12 @@ void MainMode() {
 }
 //Placeholder:  Meant for user to type in functions.
 void GraphingMode() {
+  Serial.println("INSERT");
   char charExpression[63];
   ClearcharExpression(charExpression);
   display.setCursor(0, 0);
   display.print("Y=");
+  display.display();
   //this one block is for when I can get the FRAM chips to work.  They will save the char arrays and we print them out from reading the chips.
   //the chip I will be using is FM24C04B, which holds 512 bytes per chip (or 4kBits);
   //I'll probably will just write to the chips directly rather than have charExpression and print from them.  But for now we only have one function.
@@ -1071,30 +1061,51 @@ void PlaceXValues(float values[], byte indices[], float XValue) {
   }
 }
 //placeholder: Will draw graph.
-float GetResults(float results[], float XValues[], char charExpression[]) {
+float GetResults(float results[], float XValues[], char charExpression[],byte RunThisManyTimes,float scale) {
   float values[50];
   byte conversion[80];
   byte length = 0;
   length = SetbyteExpression(charExpression, values, conversion);
   byte LargestIndices[2];
-  float SpecificXValue = -5;
+  float SpecificXValue = 0;
   convertXsToIndices(conversion, LargestIndices);
-  for (byte i = 0; i < 15; i++) {
+  for (byte i = 0; i < RunThisManyTimes/2; i++) {
     PlaceXValues(values, LargestIndices, SpecificXValue);
     results[i] = postfixevaulation(length, conversion, values);
     XValues[i] = SpecificXValue;
-    SpecificXValue++;
+    SpecificXValue-=1*(1/scale);
+    delay(15);
+  }
+  SpecificXValue=0;
+  for (byte i=RunThisManyTimes/2;i<RunThisManyTimes;i++){
+    PlaceXValues(values, LargestIndices, SpecificXValue);
+    results[i] = postfixevaulation(length, conversion, values);
+    XValues[i] = SpecificXValue;
+    SpecificXValue+=1*(1/scale);
+    delay(15);
   }
 }
+//Method that actually draws the graph
 void DrawGraph(char charExpression[]) {
+  //parameter for how many floats we want to generate.
+  const byte runthismanytimes=50;
+  Serial.println("DRAW");
   //might make these larger later.
-  float results[15];
-  float XValues[15];
-  display.clearDisplay();
+  float results[runthismanytimes];
+  float XValues[runthismanytimes];
+  const float scale=10;
+  display.clearDisplay();  
+  display.drawFastHLine(0,32,128,WHITE);
+  display.drawFastVLine(64,0,64,WHITE);
+  GetResults(results,XValues,charExpression,runthismanytimes,scale);
+  Serial.println("HERE");
   //we need to setup where to draw things, the center of the screen is (64,32) since it's 128X64.
-  for (byte i = 0; i < 15; i++) {
-    results[i] + 32;
-    XValues[i] + 64;
+  for (byte i = 0; i < runthismanytimes; i++) {
+    XValues[i]*=scale;
+    results[i]*=scale*-1;
+    results[i] += 32;
+    XValues[i] += 64;
+
   }
   //later there will be some sort of zoom factor and we can multiply by it to get a larger or smaller view of the graph.
   /*
@@ -1103,15 +1114,18 @@ void DrawGraph(char charExpression[]) {
     You can think of the screen as the carteisian product of NU{0}XNU{0}, since the screen can only draw at a positive integer and not a floating point number
   */
   //only need to sum up to 14, if we go to i=15, we will go out of bounds on the arrays
-  for (byte i = 0; i < 14; i++) {
+  for (byte i = 0; i < runthismanytimes-1; i++) {
     //will probably need this conditional or something related to make sure we don't get weird drawing errors, Can't test right now not near the actual microcontroller.
-    //if (results[i]<64&&results[i]>0){
-    display.drawLine((int)XValues[i], (int)results[i] + 0.5f, (int)XValues[i + 1], (int)results[i + 1] + 0.5f, WHITE);
-    //}
+    if (results[i]<64&&results[i]>0){
+    display.drawLine((int)XValues[i], (int)(results[i] - 0.5f), (int)XValues[i + 1], (int)(results[i + 1] - 0.5f), WHITE);
+    }
   }
+  char temp[1]={0};
   display.display();
   while (DrawingGraph) {
+      checkforinputs(temp);
   }
+  display.setCursor(0, 0);
 }
 //setup
 void setup() {
