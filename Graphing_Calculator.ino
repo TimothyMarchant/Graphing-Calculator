@@ -43,6 +43,10 @@ bool EvaulatedOnce = false;
 bool isSaved = false;
 bool DrawingGraph = false;
 bool GraphMode = false;
+bool ScalingMode = false;
+bool PressedEnter = false;
+//default value
+float ScalingFactor = 10;
 //stack class, needed for postfix evaulation and conversion.
 class ByteStack {
 public:
@@ -125,10 +129,11 @@ float power(float number, int Power) {
 This section of the code parses what the user typed.  We convert it into something that the computer can more easily read, and the result will be used in the postfix conversion stage.
 I used a byte array to hold certain values, if it's a number less than 200 it's an index to a float array, anything higher is some sort of operator or something special.
 This idea can be generalized to a int array if the need for more indices is needed, you could probably have a byte array for a 300 character string (assuming on average there are two numbers per 3 characters)
+I've capped the character array at 63 originally for memory concern and problems with the display, but later I may increase this to something much larger.
 but with a unsigned int array this number is somewhere in the 100 thousands, but that's not needed.
 Operators are '+'=249,'*'=250,'/'=251,'^'=252,'('=253,')'=254;  Noice that '-' is excluded.  In the parser dealing with '-' is a slight annoyance, so instead of subtracting we add by the opposite of whatever the number is.
 For example, 5-2 is the same as 5+-2.  This is one less thing to worry about when doing operations.
-for other special functions/operators I will use some number >=200 for recongizing them.
+for other special functions/operators I will use some number >=200 for recognizing them.
 I probably will at some point make this a library to make this code file nicer to read.
 */
 //charexpression was what the user typed, expression is the conversion into something easier to read for a computer, and values stores the actual values that were typed into the char array.
@@ -145,13 +150,19 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
   byte decimalpoint = 255;
   //bool is here to check if a value is negative when parsing.
   bool isNegative = false;
+  //we have these starting if statements for weird cases that start on them, how the parser is made prevents them from being read on the first iteration.
   if (charExpression[0] == '(') {
-      expression[Eindex] = 253;
-      Eindex++;
-  }
-  if (charExpression[0] == 'x') {
+    expression[Eindex] = 253;
+    Eindex++;
+  } else if (charExpression[0] == 'x') {
     expression[Eindex] = 200;
     Eindex++;
+  } else if (charExpression[0] == '-' && (charExpression[1] == 'x' || charExpression[1] == '(')) {
+    values[Findex] = -1;
+    expression[Eindex] = Findex;
+    expression[Eindex + 1] = 250;
+    Findex++;
+    Eindex += 2;
   }
   //run until we reach the end of the chararray or where we last entered on the array, which ever is closer.
   //NOTE if you see "return 255", 255 is for detecting that something went wrong, 255 is never used for anything so I made it for telling the enter method to stop and print to Serial monitor.
@@ -178,6 +189,7 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
         }
       }
     }
+    //check for decimal point.
     if (charExpression[i] == '.') {
       if (decimalpoint == 255) {
         decimalpoint = i;
@@ -186,11 +198,14 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
         return 255;
       }
     }
+    //terminate the loop, and place the final number (if present) into the byte and float arrays.
     if ((i + 1 == charindex || charExpression[i + 1] == 0) && charExpression[i] != 'x') {
       convertnumber(temp, i + 1, decimalpoint, Findex, isNegative, charExpression, values);
       expression[Eindex] = Findex;
       break;
-    } else if (i + 1 == charindex && charExpression[i] == 'x') {
+    } 
+    //since we've already played 'x' from the switch from before we don't need to do anything on the last pass.
+    else if (i + 1 == charindex && charExpression[i] == 'x') {
       break;
     }
     //This switch check for the next character to see if it's an operator.
@@ -219,6 +234,7 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
           if (charExpression[i] != 'x') {
             Eindex = setexpression(249, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
             Findex++;
+            Serial.println("MINUS");
           } else {
             expression[Eindex] = 249;
             Eindex++;
@@ -241,7 +257,11 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
             Eindex += 3;
             i++;
           }
-        } else if (i + 2 < charindex && (charExpression[i + 2] == '(' || charExpression[i + 2] == 'x')) {
+        }
+        //exists for same reason as before.  I will look for a better way to make this look nicer.
+        else if (i + 2 < charindex && (charExpression[i + 2] == '(' || charExpression[i + 2] == 'x')) {
+          expression[Eindex] = 249;
+          Eindex++;
           expression[Eindex] = Findex;
           values[Findex] = -1;
           Findex++;
@@ -256,8 +276,8 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
           Eindex += 3;
           i++;
         }
-        if (charExpression[i]=='x'){
-          expression[Eindex]=249;
+        if (charExpression[i] == 'x') {
+          expression[Eindex] = 249;
           Eindex++;
         }
         break;
@@ -312,9 +332,8 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
             Findex++;
             expression[Eindex + 1] = 250;
             Eindex += 2;
-          }
-          else if (charExpression[temp]=='x'){
-            expression[Eindex]=250;
+          } else if (charExpression[temp] == 'x') {
+            expression[Eindex] = 250;
             Eindex++;
           }
           expression[Eindex] = 253;
@@ -362,6 +381,7 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
         firstdigit = true;
         decimalpoint = 255;
         break;
+      //As it turns out the 'x' case is very similiar to the ')' case.  Which means that most likely things like Sine, e, and other such things may not take that long to add.
       case 'x':
         //that is we're right next to our starting point
         if (temp + 1 == i + 1) {
@@ -388,18 +408,18 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
         break;
     }
   }
-  Serial.print("Expression:");
-  for (byte i = 0; i < 7; i++) {
-    if (expression[i]>200){
-      Serial.print("!");
-    }
-    else if (expression[i]==200){
+  //left in here for debugging purposes, this is useful for when I need to know when this method is messed up somewhere.
+  /*Serial.print("Expression:");
+  for (byte i = 0; i < Eindex+1; i++) {
+    if (expression[i]==200){
       Serial.print("x");
     }
     else {
     Serial.print(expression[i]);
     }
-  }
+    Serial.print(" ");
+  }*/
+  //Serial.println();
   //needed to know how long to run postfixconversion method.
   return Eindex + 1;
 }
@@ -491,17 +511,19 @@ int whichoperator(char OP, byte index, byte expression[]) {
   index++;
   return index;
 }
-//This is just a method that
+//This is just a method that sets up the byte expression and float values and fills it with certain values that are given in the method.
 byte setexpression(byte OP, byte temp, byte last, byte decimal, byte Findex, bool isNegative, byte Eindex, char charExpression[], byte expression[], float values[]) {
+  //call this method to set the value of a number and put it into the values array.
   convertnumber(temp, last, decimal, Findex, isNegative, charExpression, values);
-
   expression[Eindex] = Findex;
   Findex++;
   Eindex++;
-  if (OP == 253) {
+  //multiply if the operator is "(" or "x"
+  if (OP == 253 || OP == 200) {
     expression[Eindex] = 250;
     Eindex++;
   }
+  //finally set the original operator here.
   expression[Eindex] = OP;
   Eindex++;
   return Eindex;
@@ -511,10 +533,9 @@ byte setexpression(byte OP, byte temp, byte last, byte decimal, byte Findex, boo
   The alogrithms that are used we're taught in my datastructures class (although we only went over how the alogrithm worked and how to do it by hand, not how to code it).
 */
 //249=+,250=*,251=/,252=^,253=(,254=),255=STOP;
-//this method pops off the operators that are in the stack.
+//this method pops off the operators that are in the stack in the postfix conversion method.
 byte PopOPS(byte index, ByteStack *stack, byte conversion[], bool endofpar) {
   //Stop at '(' we don't have it in postfix notation.
-  //Serial.println("LOOP");
   while ((!stack->isEmpty()) && stack->Peek() != 253) {
     conversion[index] = stack->Pop();
     Serial.println(conversion[index]);
@@ -528,22 +549,31 @@ byte PopOPS(byte index, ByteStack *stack, byte conversion[], bool endofpar) {
 }
 //converts regular infix expression into postfix-notation.
 byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
+  //stack class needed for postfix conversion.
   ByteStack *stack = new ByteStack(30);
+  //new index for determing where to put stuff in the new converted array.
   byte index = 0;
+  //needed for checking when the end of the array really appears (of useful information).
   bool seenzero = false;
   for (byte i = 0; i < ELength; i++) {
     //if operator do something based on what's in stack->
     if (expression[i] >= 249) {
       if (stack->isEmpty()) {
         stack->Push(expression[i]);
-      } else if (expression[i] > (stack->Peek()) && expression[i] != 254) {
+      }
+      //preserve order of operations, pop off the operators if something that is of lower precedence 
+      else if (expression[i] > (stack->Peek()) && expression[i] != 254) {
         if (expression[i] == 251 && stack->Peek() == 250) {
           index = PopOPS(index, stack, conversion, false);
         }
         stack->Push(expression[i]);
-      } else if (stack->Peek() == 253) {
+      }
+      //always push '(' they won't be in the final conversion. 
+      else if (stack->Peek() == 253) {
         stack->Push(expression[i]);
-      } else if (expression[i] != 253) {
+      }
+      //The end of ')' implies that we pop off all operators contained in the parentheses. 
+      else if (expression[i] != 253) {
         if (expression[i] == 254) {
           index = PopOPS(index, stack, conversion, true);
         } else {
@@ -552,7 +582,9 @@ byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
           stack->Push(expression[i]);
         }
       }
-    } else {
+    } 
+    //otherwise just put into the conversion array.
+    else {
       if (seenzero && expression[i] == 0) {
         break;
       }
@@ -583,6 +615,11 @@ byte operation(byte Left, byte OP, byte Right, float tempvalues[]) {
       tempvalues[Left] *= tempvalues[Right];
       break;
     case 251:
+      //I just put this huge value as a temp value until I find a better way to throw some sort of error.
+      if (tempvalues[Right] == 0) {
+        tempvalues[Left] = 10000000;
+        return 255;
+      }
       tempvalues[Left] /= tempvalues[Right];
       break;
     case 252:
@@ -594,12 +631,18 @@ byte operation(byte Left, byte OP, byte Right, float tempvalues[]) {
 }
 //Postfix evaulation method.  This is how we evaluate things in postfix correctly.
 float postfixevaulation(byte length, byte conversion[], float values[]) {
+  //for when you just enter one thing no need to do anything else.
+  if (length == 1) {
+    return values[0];
+  }
   ByteStack *stack = new ByteStack(length);
   float tempvalues[length];
   byte FirstIndex = conversion[0];
+  //fill a tempvalues array to preserve the original values array.
   for (byte i = 0; i < length; i++) {
     tempvalues[i] = values[i];
   }
+  //run until we reach the end of the conversion array and return that result.
   for (byte i = 0; i < length; i++) {
     if (conversion[i] < 249) {
       stack->Push(conversion[i]);
@@ -608,6 +651,11 @@ float postfixevaulation(byte length, byte conversion[], float values[]) {
       delay(5);
       byte Left = stack->Pop();
       stack->Push(operation(Left, conversion[i], Right, tempvalues));
+      if (stack->Peek() == 255) {
+        delete stack;
+        stack = nullptr;
+        return tempvalues[Left];
+      }
     }
   }
   delete stack;
@@ -633,13 +681,15 @@ void Shift_In(byte DataPin, byte ClockPin, byte index) {
     digitalWrite(ClockPin, LOW);
   }
 }
-//The numbers given in the shift register are in binary so each case is a binary number with only 1 index that is a 1.
-//E.G. you have numbers like 00000001, 00000010, etc these correspond to a button being pressed, values like 00111111 this is just multiple buttons being pressed which we just reject as they have no purpose to acount for.
-//if a line is commented out then it doesn't function yet and is planned on being worked on at some point.
-//Shift 1 corresponds to all number inputs excluding 8 and 9.
-//closest to microcontroller.
+/*The numbers given in the shift register are in binary so each case is a binary number with only 1 index that is a 1.
+//E.G. you have numbers like 00000001, 00000010, etc these correspond to a button being pressed, values like 00111111 this is just multiple buttons being pressed which we just reject as they have no purpose for this project.
+//if a line is commented out then it doesn't function yet and is planned on being worked on at some point.*/
+
+//Shift 1 corresponds to all number inputs excluding 8 and 9. It is the closest to microcontroller.
 void Shift1(byte data, char charExpression[]) {
-  if (DrawingGraph) {
+  if (DrawingGraph && !ScalingMode) {
+    return;
+  } else if (ScalingMode && charindex >= 7) {
     return;
   }
   switch (data) {
@@ -678,9 +728,11 @@ void Shift1(byte data, char charExpression[]) {
   }
   charindex++;
 }
-//prints 8 and 9, then . and all normal operators.
+//prints 8 and 9, then . and all normal operators.  2nd Shift register in the daisy chain
 void Shift2(byte data, char charExpression[]) {
-  if (DrawingGraph) {
+  if (DrawingGraph && !ScalingMode) {
+    return;
+  } else if (ScalingMode && data > 3 && charindex >= 7) {
     return;
   }
   switch (data) {
@@ -721,8 +773,9 @@ void Shift2(byte data, char charExpression[]) {
 }
 //mostly special functions like e or sin and (, )
 //the special functions are planned for later.
+//2nd Shift register in the daisy chain
 void Shift3(byte data, char charExpression[]) {
-  if (DrawingGraph) {
+  if (DrawingGraph || ScalingMode) {
     return;
   }
   switch (data) {
@@ -761,16 +814,26 @@ void Shift3(byte data, char charExpression[]) {
 //buttons for things that have special operations. These will call specialized functions and most are placeholders for now.
 void Shift4(byte data, char charExpression[]) {
   switch (data) {
-    //enter
+    //enter; evaluate or enter a scaling factor
     case 0b00000001:
+      if (ScalingMode) {
+        PressedEnter = true;
+        ScalingMode = false;
+        return;
+      }
       if (GraphMode || DrawingGraph) {
         return;
       }
       Enter(charExpression);
       display.println();
       break;
-    //clear
+    //clear; clear actual expression
     case 0b00000010:
+      if (ScalingMode) {
+        clear(charExpression);
+        reprintScalingMode(charExpression);
+        return;
+      }
       if (DrawingGraph) {
         return;
       }
@@ -789,32 +852,57 @@ void Shift4(byte data, char charExpression[]) {
         charindex--;
         display.setCursor(0, 0);
         display.clearDisplay();
+        if (ScalingMode) {
+          reprintScalingMode(charExpression);
+          return;
+        }
         if (GraphMode) {
           display.print("Y=");
         }
         printmainmenu(charExpression);
       }
       break;
+      //button brings up scaling menu.  Called from here in case you don't want to exit graphing mode.
     case 0b00001000:
-      //display.print("TRACE");
+      if (ScalingMode) {
+        return;
+      }
+      ScalingMode = true;
+      DrawingGraph = false;
+      SetScalingFactor();
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      if (GraphingMode){
+          display.print("Y=");
+      }
+      printmainmenu(charExpression);
+      display.display();
       break;
+      //This button starts the drawing process. It's intentional that it's called from here rather than in void loop().  Based on a limitation of how I stored the charExpressions.
     case 0b00010000:
-      //display.print("GRAPH");
-      if (GraphMode&&charindex>0) {
+      if (GraphMode && charindex > 0 && !DrawingGraph) {
         DrawingGraph = true;
         DrawGraph(charExpression);
-        GraphMode = false;
+        if (GraphMode) {
+          display.clearDisplay();
+          display.setCursor(0, 0);
+          display.print("Y=");
+          printmainmenu(charExpression);
+          display.display();
+        }
       }
       break;
       //exit current mode that is not the normal calculation mode.
     case 0b00100000:
       GraphMode = false;
       DrawingGraph = false;
+      ScalingMode = false;
       display.clearDisplay();
       display.display();
       break;
+      //button for adding 'x' for an expression
     case 0b01000000:
-      if (charindex == 63 || GraphingMode == true) {
+      if (charindex == 63 || DrawingGraph || ScalingMode) {
         return;
       }
       display.print("x");
@@ -824,9 +912,52 @@ void Shift4(byte data, char charExpression[]) {
     case 0b10000000:
       //Y=, lets you type in a function.
       GraphMode = true;
+      ScalingMode = false;
       DrawingGraph = false;
       break;
   }
+}
+//reprints the scaling menu.
+void reprintScalingMode(char charExpression[]) {
+  display.setCursor(0, 0);
+  display.clearDisplay();
+  display.print("Current Scaling Factor: ");
+  display.println(ScalingFactor);
+  display.print("Enter new Scaling Factor: ");
+  printmainmenu(charExpression);
+  display.display();
+}
+//ScalingMode.  Let's the user type in a scaling factor for scaling the graph drawing.
+void SetScalingFactor() {
+  char charExpression[63];
+  byte tempcharindex = charindex;
+  charindex = 0;
+  ClearcharExpression(charExpression);
+  reprintScalingMode(charExpression);
+  //keep looping menu until enter, exit, graph, or draw is pressed.
+  while (ScalingMode) {
+    checkforinputs(charExpression);
+  }
+  delay(5);
+  display.println();
+  if (PressedEnter) {
+    //the arrays are dummy variables for charparser, since it parses a single number.  
+    //Otherwise we would have to keep track of where decimals are when it's typed into this method.
+    byte temp[1] = { 0 };
+    float temp2[1] = { 0 };
+    CharParser(charExpression, temp, temp2);
+    ScalingFactor = temp2[0];
+  }
+  //set to false so that it's reset to normal state.
+  PressedEnter = false;
+  Serial.println("Finished");
+  display.clearDisplay();
+  display.display();
+  display.setCursor(0, 0);
+  if (GraphMode) {
+    display.print("Y=");
+  }
+  charindex = tempcharindex;
 }
 //check for which shift register read an input. That way we know what to display.
 void whichshift(byte data, byte ShiftRegisterNumber, char charExpression[]) {
@@ -898,7 +1029,7 @@ void printmainmenu(char charExpression[]) {
     display.print(charExpression[i]);
   }
 }
-//for shifting expression array
+//for shifting expression array, meant for fixing things in the middle of an array.
 void shiftarray(byte expression[], byte Elength, byte Start) {
   expression[Start] = expression[Start + 1];
   expression[Start + 1] = 0;
@@ -908,6 +1039,7 @@ void shiftarray(byte expression[], byte Elength, byte Start) {
   }
 }
 //this exists as a way to remove things like "(-5)" for if we don't do this things like 5+(-2) do not result correctly (before it would output 3 or a nonsense value);
+//This is a temporary fix, not a long term one.  Something is wrong with postfix conversion most likely and I'll fix it after I finish other tasks.
 byte removesinglepartheses(byte expression[], byte Elength) {
   byte numofremovedpartheses = 0;
   for (byte i = 0; i < Elength; i++) {
@@ -918,7 +1050,7 @@ byte removesinglepartheses(byte expression[], byte Elength) {
   }
   return Elength - numofremovedpartheses;
 }
-//Calls charParser and PostFixConversion
+//Calls charParser and PostFixConversion returns the postfix conversion of expression.
 byte SetbyteExpression(char charexp[], float values[], byte conversion[]) {
   //we declare expression in here, for when we're done with PostFixConversion, it is no longer needed and we can save some memory.
   byte expression[80];
@@ -931,7 +1063,7 @@ byte SetbyteExpression(char charexp[], float values[], byte conversion[]) {
     return Elength;
   }
   Elength = removesinglepartheses(expression, Elength);
-  //variable for postfixevaulation that is how long to run it.
+  //variable for postfixevaulation. This is the amount of values in the conversion array that are used.
   byte length = 0;
   length = postfixconversion(conversion, expression, Elength);
   return length;
@@ -948,31 +1080,14 @@ void setarrays(byte expression[], float values[], byte conversion[]) {
 }
 //enter method this is where we evaluate expressions.
 void Enter(char charExpression[]) {
-  Serial.print("charindex");
-  Serial.println(charindex);
-  Serial.print("CHAREXP");
-  for (byte i = 0; i < charindex; i++) {
-  }
-  Serial.println();
   float values[50];
   byte conversion[80];
   byte length = SetbyteExpression(charExpression, values, conversion);
   delay(50);
   byte LargestIndices[2];
-  Serial.println("BEFORE INDICES");
-  for (byte i = 0; i < 7; i++) {
-    Serial.print(conversion[i]);
-    Serial.print(" ");
-  }
-  Serial.println();
   convertXsToIndices(conversion, LargestIndices);
-  Serial.println("AFTER");
-  for (byte i = 0; i < 7; i++) {
-    Serial.print(conversion[i]);
-    Serial.print(" ");
-  }
   Serial.println();
-  //just give x values a default value for when you press enter.  For testing
+  //just give x values a default value for when you press enter.  For testing, also in case someone types it into main menu.
   PlaceXValues(values, LargestIndices, 2);
   if (EvaulatedOnce) {
     display.clearDisplay();
@@ -988,7 +1103,7 @@ void Enter(char charExpression[]) {
   delay(30);
   ClearcharExpression(charExpression);
 }
-//Clear out the arrays.
+//Clear method.  Clears out expressions.
 void clear(char charExpression[]) {
   display.clearDisplay();
   display.display();
@@ -996,6 +1111,7 @@ void clear(char charExpression[]) {
   ClearcharExpression(charExpression);
   EvaulatedOnce = false;
 }
+//clear out charExpression, that is set every entry to 0.
 void ClearcharExpression(char charExpression[]) {
   for (byte i = 0; i < MaxCharIndex; i++) {
     charExpression[i] = 0;
@@ -1004,38 +1120,29 @@ void ClearcharExpression(char charExpression[]) {
 }
 //the default screen mode. For doing arithmetic operations alone
 void MainMode() {
+  display.setCursor(0, 0);
   display.display();
   char charExpression[63];
-  for (byte i = 0; i < MaxCharIndex; i++) {
-    charExpression[i] = 0;
-  }
+  ClearcharExpression(charExpression);
   while (!GraphMode) {
     checkforinputs(charExpression);
   }
 }
-//Placeholder:  Meant for user to type in functions.
+//Meant for user to type in functions
 void GraphingMode() {
-  Serial.println("INSERT");
+  //the only limitations of this method is that it supports only one function and doesn't save after you press exit (although it saves after pressing draw, and scale).
+  //I planned on adding some FRAM chips to save typed in character expressions.  Since you can change expressions a lot I didn't think using EEPROM would be a good idea
+  display.clearDisplay();
   char charExpression[63];
   ClearcharExpression(charExpression);
   display.setCursor(0, 0);
   display.print("Y=");
   display.display();
-  //this one block is for when I can get the FRAM chips to work.  They will save the char arrays and we print them out from reading the chips.
-  //the chip I will be using is FM24C04B, which holds 512 bytes per chip (or 4kBits);
-  //I'll probably will just write to the chips directly rather than have charExpression and print from them.  But for now we only have one function.
-  /*
-  if (charExpression[0] != 0) {
-    for (byte i = 0; i < 63; i++) {
-      if (charExpression[i] != 0) {
-        display.print(charExpression[i]);
-      }
-    }
-  }*/
   while (GraphMode) {
     checkforinputs(charExpression);
   }
 }
+//This method looks for the largest index used in values, and from that fills all the X's with float indexes after that index
 void convertXsToIndices(byte conversion[], byte indices[]) {
   byte largestindex = 0;
   for (byte i = 0; i < 80; i++) {
@@ -1043,9 +1150,10 @@ void convertXsToIndices(byte conversion[], byte indices[]) {
       largestindex = conversion[i];
     }
   }
-  //need to start at next index.
+  //need to start at the next index.
   largestindex++;
   byte tempindex = largestindex;
+  //fill in the converted char array
   for (byte i = 0; i < 80; i++) {
     if (conversion[i] == 200) {
       conversion[i] = tempindex;
@@ -1055,57 +1163,83 @@ void convertXsToIndices(byte conversion[], byte indices[]) {
   indices[0] = largestindex;
   indices[1] = tempindex;
 }
+//Places X values into the float array values.  Indices is the starting point for where the x positions are and the ending point.
 void PlaceXValues(float values[], byte indices[], float XValue) {
   for (byte i = indices[0]; i < indices[1]; i++) {
     values[i] = XValue;
   }
 }
-//placeholder: Will draw graph.
-float GetResults(float results[], float XValues[], char charExpression[],byte RunThisManyTimes,float scale) {
+//Get's the values for graphing.  Save X values and results is the result of the function evaulated at a specific x value.
+float GetResults(float results[], float XValues[], char charExpression[], byte RunThisManyTimes, float scale) {
   float values[50];
   byte conversion[80];
   byte length = 0;
   length = SetbyteExpression(charExpression, values, conversion);
+  /*for debugging will use later for when I implement trig functions
+  Serial.print("Conversion: ");
+  for (byte i = 0; i < length; i++) {
+    if (conversion[i] == 200) {
+      Serial.print("x");
+    } else {
+      Serial.print(conversion[i]);
+    }
+    Serial.print(" ");
+  }
+  Serial.println();*/
   byte LargestIndices[2];
   float SpecificXValue = 0;
   convertXsToIndices(conversion, LargestIndices);
-  for (byte i = 0; i < RunThisManyTimes/2; i++) {
+  for (byte i = 0; i < RunThisManyTimes / 2; i++) {
     PlaceXValues(values, LargestIndices, SpecificXValue);
     results[i] = postfixevaulation(length, conversion, values);
     XValues[i] = SpecificXValue;
-    SpecificXValue-=1*(1/scale);
+    SpecificXValue -= 1 / scale;
     delay(15);
   }
-  SpecificXValue=0;
-  for (byte i=RunThisManyTimes/2;i<RunThisManyTimes;i++){
+  SpecificXValue = 0;
+  for (byte i = RunThisManyTimes / 2; i < RunThisManyTimes; i++) {
     PlaceXValues(values, LargestIndices, SpecificXValue);
     results[i] = postfixevaulation(length, conversion, values);
     XValues[i] = SpecificXValue;
-    SpecificXValue+=1*(1/scale);
+    SpecificXValue += 1 / scale;
     delay(15);
   }
 }
+//checking to make sure we're not outside the screen's dimensions.
+bool isExceedingScreenDimensions(float results[], float XValues[], byte i) {
+  //seperated the if statements to make it easier to read.
+  if (results[i] > 64 || results[i] < 0) {
+    return true;
+  } else if (XValues[i] < 0 || XValues[i] > 128) {
+    return true;
+  }
+  return false;
+}
 //Method that actually draws the graph
 void DrawGraph(char charExpression[]) {
-  //parameter for how many floats we want to generate.
-  const byte runthismanytimes=50;
-  Serial.println("DRAW");
+  //parameter for how many floats we want to generate.  For 50 floats it took for a medium sized (about 21-24 characters) about 3(?) seconds to calculate and draw.  
+  //100 floats takes about 5 or so seconds.
+  const byte runthismanytimes = 100;
   //might make these larger later.
   float results[runthismanytimes];
   float XValues[runthismanytimes];
-  const float scale=10;
-  display.clearDisplay();  
-  display.drawFastHLine(0,32,128,WHITE);
-  display.drawFastVLine(64,0,64,WHITE);
-  GetResults(results,XValues,charExpression,runthismanytimes,scale);
+  const float scale = ScalingFactor;
+  display.clearDisplay();
+  display.drawFastHLine(0, 32, 128, WHITE);
+  display.drawFastVLine(64, 0, 64, WHITE);
+  display.display();
+  GetResults(results, XValues, charExpression, runthismanytimes, scale);
   Serial.println("HERE");
   //we need to setup where to draw things, the center of the screen is (64,32) since it's 128X64.
   for (byte i = 0; i < runthismanytimes; i++) {
-    XValues[i]*=scale;
-    results[i]*=scale*-1;
+    Serial.print(i);
+    Serial.print(" Result: ");
+    Serial.println(results[i]);
+    XValues[i] *= scale * 1.25;
+    //multiply by -1 since the screen's origin starts at the top left of the screen, to make it look like it's going up, we multiply by -1.
+    results[i] *= scale * 1.25 * -1;
     results[i] += 32;
     XValues[i] += 64;
-
   }
   //later there will be some sort of zoom factor and we can multiply by it to get a larger or smaller view of the graph.
   /*
@@ -1113,17 +1247,28 @@ void DrawGraph(char charExpression[]) {
     We can also do shifting by adding by some arbitary constant to get a certain view of the screen.  
     You can think of the screen as the carteisian product of NU{0}XNU{0}, since the screen can only draw at a positive integer and not a floating point number
   */
-  //only need to sum up to 14, if we go to i=15, we will go out of bounds on the arrays
-  for (byte i = 0; i < runthismanytimes-1; i++) {
-    //will probably need this conditional or something related to make sure we don't get weird drawing errors, Can't test right now not near the actual microcontroller.
-    if (results[i]<64&&results[i]>0){
-    display.drawLine((int)XValues[i], (int)(results[i] - 0.5f), (int)XValues[i + 1], (int)(results[i + 1] - 0.5f), WHITE);
+  //It's -1 since the midpoint of the array starts at the origin (or at least at x=0) and goes in the other direction after that point.
+  //this draws for x<=0
+  for (byte i = 0; i < ((runthismanytimes) / 2) - 1; i++) {
+    //conditional is here to prevent the functions from drawing off screen which has undesirable effects on the main screen.
+    if (!isExceedingScreenDimensions(results, XValues, i) && results[i] != results[i + 1]) {
+      display.drawLine((int)XValues[i], (int)(results[i] - 0.5f), (int)XValues[i + 1], (int)(results[i + 1] - 0.5f), WHITE);
+      display.display();
     }
   }
-  char temp[1]={0};
+  //draw for x>=0
+  for (byte i = (runthismanytimes) / 2; i < runthismanytimes - 1; i++) {
+
+    if (!isExceedingScreenDimensions(results, XValues, i) && results[i] != results[i + 1]) {
+      display.drawLine((int)XValues[i], (int)(results[i] - 0.5f), (int)XValues[i + 1], (int)(results[i + 1] - 0.5f), WHITE);
+      display.display();
+    }
+  }
+  //we don't want to add any actual characters as of right now.
+  char temp[1] = { 0 };
   display.display();
   while (DrawingGraph) {
-      checkforinputs(temp);
+    checkforinputs(temp);
   }
   display.setCursor(0, 0);
 }
@@ -1137,13 +1282,14 @@ void setup() {
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("SSD1306 allocation failed"));
     for (;;)
-      ;  // Don't proceed, loop forever
+      ;
   }
   display.display();
   delay(2000);
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
+  //setup pins.
   pinMode(latchpin, OUTPUT);
   pinMode(clockpin, OUTPUT);
   pinMode(datapin, INPUT);
@@ -1152,7 +1298,8 @@ void setup() {
   //debugging purposes only, tells me when the program actually begins.  Mainly when I have to restart the microcontroller and I want to compare outputs from previous uploads.
   Serial.println("Start");
 }
-//loop
+//loop cycle between MainMode and GraphingMode.  MainMode is for calculations
+//while GraphingMode brings up the function menu.
 void loop() {
   if (GraphMode) {
     GraphingMode();
