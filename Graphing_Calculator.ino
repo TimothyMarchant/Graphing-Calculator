@@ -202,10 +202,12 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
     if ((i + 1 == charindex || charExpression[i + 1] == 0) && charExpression[i] != 'x') {
       convertnumber(temp, i + 1, decimalpoint, Findex, isNegative, charExpression, values);
       expression[Eindex] = Findex;
+      Eindex++;
       break;
     } 
     //since we've already played 'x' from the switch from before we don't need to do anything on the last pass.
     else if (i + 1 == charindex && charExpression[i] == 'x') {
+      Eindex++;
       break;
     }
     //This switch check for the next character to see if it's an operator.
@@ -258,7 +260,8 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
             i++;
           }
         }
-        //exists for same reason as before.  I will look for a better way to make this look nicer.
+        //exists for same reason as before.  I will look for a better way to make this look nicer.  and yes this needs to be in both places
+        //I'm not exactly sure why me just putting this as an if and removing the top one breaks the code, but I'm trying to figure it out.
         else if (i + 2 < charindex && (charExpression[i + 2] == '(' || charExpression[i + 2] == 'x')) {
           expression[Eindex] = 249;
           Eindex++;
@@ -409,19 +412,42 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
     }
   }
   //left in here for debugging purposes, this is useful for when I need to know when this method is messed up somewhere.
-  /*Serial.print("Expression:");
-  for (byte i = 0; i < Eindex+1; i++) {
+  Serial.print("Expression:");
+  for (byte i = 0; i < Eindex; i++) {
     if (expression[i]==200){
       Serial.print("x");
     }
     else {
-    Serial.print(expression[i]);
+      switch (expression[i]){
+        case 249:
+        Serial.print("+");
+        break;
+        case 250:
+        Serial.print("*");
+        break;
+        case 251:
+        Serial.print("/");
+        break;
+        case 252:
+        Serial.print("^");
+        break;
+        case 253:
+        Serial.print("(");
+        break;
+        case 254:
+        Serial.print(")");
+        break;
+        default:
+        Serial.print(expression[i]);
+        break;
+      }
+    
     }
     Serial.print(" ");
-  }*/
-  //Serial.println();
+  }
+  Serial.println();
   //needed to know how long to run postfixconversion method.
-  return Eindex + 1;
+  return Eindex;
 }
 //this method actual converts each number in the char array into it's actual value into a floating point number (e.g if you have 21+32, this method will convert 21 and 32 correctly and put it into a float value).
 void convertnumber(byte first, byte last, byte decimalpoint, byte floatindex, bool isNegative, char charExpression[], float values[]) {
@@ -543,8 +569,10 @@ byte PopOPS(byte index, ByteStack *stack, byte conversion[], bool endofpar) {
   }
   //actually remove the left partheses.
   if (endofpar) {
-    stack->Pop();
+    Serial.println(stack->Pop());
   }
+  Serial.print("POPOPS");
+  Serial.println();
   return index;
 }
 //converts regular infix expression into postfix-notation.
@@ -567,18 +595,25 @@ byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
           index = PopOPS(index, stack, conversion, false);
         }
         stack->Push(expression[i]);
+        Serial.println(expression[i]);
+        Serial.println("TOP");
       }
-      //always push '(' they won't be in the final conversion. 
-      else if (stack->Peek() == 253) {
+      //always push '(' they won't be in the final conversion. Also make sure it's not a right parenthese.
+      else if (stack->Peek() == 253&&expression[i]!=254) {
         stack->Push(expression[i]);
+        Serial.println(expression[i]);
+        Serial.println("MIDDLE");
       }
       //The end of ')' implies that we pop off all operators contained in the parentheses. 
       else if (expression[i] != 253) {
         if (expression[i] == 254) {
           index = PopOPS(index, stack, conversion, true);
+          Serial.println("POP");
         } else {
 
           index = PopOPS(index, stack, conversion, false);
+          Serial.println(expression[i]);
+          Serial.println("BOTTOM");
           stack->Push(expression[i]);
         }
       }
@@ -601,6 +636,11 @@ byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
   }
   delete stack;
   stack = nullptr;
+  Serial.print("Conversion: ");
+  for (byte i=0;i<index;i++){
+    Serial.print(conversion[i]);
+    Serial.print(" ");
+  }
   Serial.println();
   return index;
 }
@@ -1029,27 +1069,6 @@ void printmainmenu(char charExpression[]) {
     display.print(charExpression[i]);
   }
 }
-//for shifting expression array, meant for fixing things in the middle of an array.
-void shiftarray(byte expression[], byte Elength, byte Start) {
-  expression[Start] = expression[Start + 1];
-  expression[Start + 1] = 0;
-  expression[Start + 2] = 0;
-  for (byte i = Start + 1; i < Elength - 2; i++) {
-    expression[i] = expression[i + 2];
-  }
-}
-//this exists as a way to remove things like "(-5)" for if we don't do this things like 5+(-2) do not result correctly (before it would output 3 or a nonsense value);
-//This is a temporary fix, not a long term one.  Something is wrong with postfix conversion most likely and I'll fix it after I finish other tasks.
-byte removesinglepartheses(byte expression[], byte Elength) {
-  byte numofremovedpartheses = 0;
-  for (byte i = 0; i < Elength; i++) {
-    if (expression[i] == 253 && i + 2 < Elength && expression[i + 2] == 254) {
-      shiftarray(expression, Elength, i);
-      numofremovedpartheses += 2;
-    }
-  }
-  return Elength - numofremovedpartheses;
-}
 //Calls charParser and PostFixConversion returns the postfix conversion of expression.
 byte SetbyteExpression(char charexp[], float values[], byte conversion[]) {
   //we declare expression in here, for when we're done with PostFixConversion, it is no longer needed and we can save some memory.
@@ -1062,7 +1081,6 @@ byte SetbyteExpression(char charexp[], float values[], byte conversion[]) {
     clear(charexp);
     return Elength;
   }
-  Elength = removesinglepartheses(expression, Elength);
   //variable for postfixevaulation. This is the amount of values in the conversion array that are used.
   byte length = 0;
   length = postfixconversion(conversion, expression, Elength);
@@ -1099,7 +1117,7 @@ void Enter(char charExpression[]) {
   display.display();
   EvaulatedOnce = true;
   float temp = postfixevaulation(length, conversion, values);
-  display.print(temp);
+  display.print(temp,5);
   delay(30);
   ClearcharExpression(charExpression);
 }
@@ -1232,26 +1250,30 @@ void DrawGraph(char charExpression[]) {
   Serial.println("HERE");
   //we need to setup where to draw things, the center of the screen is (64,32) since it's 128X64.
   for (byte i = 0; i < runthismanytimes; i++) {
-    Serial.print(i);
-    Serial.print(" Result: ");
-    Serial.println(results[i]);
-    XValues[i] *= scale * 1.25;
+    //Serial.print(i);
+    //Serial.print(" Result: ");
+    //Serial.println(results[i]);
+    XValues[i] *= scale;
     //multiply by -1 since the screen's origin starts at the top left of the screen, to make it look like it's going up, we multiply by -1.
-    results[i] *= scale * 1.25 * -1;
+    results[i] *= scale * -1;
     results[i] += 32;
     XValues[i] += 64;
   }
-  //later there will be some sort of zoom factor and we can multiply by it to get a larger or smaller view of the graph.
   /*
-    all we're doing when we do that is scaling the standard matrix of R^2 and scaling the pivot positions of the identity matrix by some constant c
+    all we're doing when we do that is scaling the standard matrix of R^2 (R is the real numbers) and scaling the pivot positions of the identity matrix by some constant c
+    and then multiplying each pair of points by the scaling factor.  Think of a pair of points as a vector in R^2
     We can also do shifting by adding by some arbitary constant to get a certain view of the screen.  
-    You can think of the screen as the carteisian product of NU{0}XNU{0}, since the screen can only draw at a positive integer and not a floating point number
+    You can think of the screen as the coordinate plane, but we're only restricted to positive integers (and zero) that we can map to. 
+    since the screen can only draw at a positive integer and not a floating point number
+    Example: consider the vector X= [5] and the matrix A= [10 0] and consider the transformation T(X) where AX=T(X) and all entries are rounded up to the nearest integer.  Then the corresponding vector becomes [50]
+                                    [2]                   [0 10]                                                                                                                                                  [20]    
   */
   //It's -1 since the midpoint of the array starts at the origin (or at least at x=0) and goes in the other direction after that point.
   //this draws for x<=0
   for (byte i = 0; i < ((runthismanytimes) / 2) - 1; i++) {
     //conditional is here to prevent the functions from drawing off screen which has undesirable effects on the main screen.
-    if (!isExceedingScreenDimensions(results, XValues, i) && results[i] != results[i + 1]) {
+    //this mostly applies to functions that grow very fast.
+    if (!isExceedingScreenDimensions(results, XValues, i)) {
       display.drawLine((int)XValues[i], (int)(results[i] - 0.5f), (int)XValues[i + 1], (int)(results[i + 1] - 0.5f), WHITE);
       display.display();
     }
@@ -1259,7 +1281,7 @@ void DrawGraph(char charExpression[]) {
   //draw for x>=0
   for (byte i = (runthismanytimes) / 2; i < runthismanytimes - 1; i++) {
 
-    if (!isExceedingScreenDimensions(results, XValues, i) && results[i] != results[i + 1]) {
+    if (!isExceedingScreenDimensions(results, XValues, i)) {
       display.drawLine((int)XValues[i], (int)(results[i] - 0.5f), (int)XValues[i + 1], (int)(results[i + 1] - 0.5f), WHITE);
       display.display();
     }
