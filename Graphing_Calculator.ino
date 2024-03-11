@@ -913,7 +913,7 @@ byte operation(byte Left, byte OP, byte Right, float tempvalues[]) {
       tempvalues[Left] = power(tempvalues[Left], (int)tempvalues[Right]);
       break;
   }
-  delay(1);
+  //delay(1);
   return Left;
 }
 //enforce periodicty of a periodic function.
@@ -957,8 +957,8 @@ byte TrigOperation(byte operand, byte trigfunction,float tempvalues[]){
       temp+=pi;
       Shifted=true;
     }
-    //taylor series of sinx up to four terms.
-    temp2=temp-(power(temp,3)/6)+power(temp,5)/120-power(temp,7)/5040;
+    //taylor series of sinx up to five terms.
+    temp2=temp-(power(temp,3)/6)+power(temp,5)/120-power(temp,7)/5040+power(temp,9)/362880;
     //if we shifted temp multiply by -1 to get the correct value of sinx.
     if (Shifted){
       temp2*=-1;
@@ -999,7 +999,6 @@ float postfixevaulation(byte length, byte conversion[], float values[]) {
     //for standard operators.
     else {
       byte Right = stack->Pop();
-      delay(5);
       byte Left = stack->Pop();
       stack->Push(operation(Left, conversion[i], Right, tempvalues));
       if (stack->Peek() == error) {
@@ -1302,7 +1301,6 @@ void SetScalingFactor() {
   while (ScalingMode) {
     checkforinputs(charExpression);
   }
-  delay(5);
   display.println();
   if (PressedEnter) {
     //the arrays are dummy variables for charparser, since it parses a single number.
@@ -1314,7 +1312,6 @@ void SetScalingFactor() {
   }
   //set to false so that it's reset to normal state.
   PressedEnter = false;
-  Serial.println("Finished");
   display.clearDisplay();
   display.display();
   display.setCursor(0, 0);
@@ -1444,9 +1441,8 @@ void Enter(char charExpression[]) {
   if (TESTINGPARSER || TESTINGCONVERSION) {
     return;
   }
-  //delay(50);
   byte LargestIndices[2];
-  convertXsToIndices(conversion, LargestIndices);
+  convertXsToIndices(conversion, LargestIndices,length);
   //just give x values a default value for when you press enter.  For testing, also in case someone types it into main menu.
   //the 2 here is a test value.
   PlaceXValues(values, LargestIndices, 2);
@@ -1483,7 +1479,7 @@ void ClearcharExpression(char charExpression[]) {
 void MainMode() {
   display.setCursor(0, 0);
   display.display();
-  char charExpression[63];
+  char charExpression[MaxCharIndex];
   ClearcharExpression(charExpression);
   while (!GraphMode) {
     checkforinputs(charExpression);
@@ -1494,7 +1490,7 @@ void GraphingMode() {
   //the only limitations of this method is that it supports only one function and doesn't save after you press exit (although it saves after pressing draw, and scale).
   //I planned on adding some FRAM chips to save typed in character expressions.  Since you can change expressions a lot I didn't think using EEPROM would be a good idea
   display.clearDisplay();
-  char charExpression[63];
+  char charExpression[MaxCharIndex];
   ClearcharExpression(charExpression);
   display.setCursor(0, 0);
   display.print("Y=");
@@ -1504,33 +1500,26 @@ void GraphingMode() {
   }
 }
 //This method looks for the largest index used in values, and from that fills all the X's with float indexes after that index
-void convertXsToIndices(byte conversion[], byte indices[]) {
-  byte largestindex = 0;
+void convertXsToIndices(byte conversion[], byte indices[],byte length) {
+  signed char largestindex = -1;
   byte tempindex=0;
-  for (byte i = 0; i < 80; i++) {
+  for (byte i = 0; i < length; i++) {
     if (conversion[i] < X && largestindex < conversion[i]) {
       largestindex = conversion[i];
+     
     }
   }
-  //this is for when there are no other indexes, but x.
-  if (largestindex==0){
-    indices[0] = largestindex;
-    indices[1] = tempindex+1;
-    
-  }
-  else {
   //need to start at the next index.
   largestindex++;
   tempindex = largestindex;
-  }
   //fill in the converted char array
-  for (byte i = 0; i < 80; i++) {
+  for (byte i = 0; i < length; i++) {
     if (conversion[i] == X) {
       conversion[i] = tempindex;
       tempindex++;
     }
   }
-  indices[0] = largestindex;
+  indices[0] = (byte) largestindex;
   indices[1] = tempindex;
 }
 //Places X values into the float array values.  Indices is the starting point for where the x positions are and the ending point.
@@ -1555,7 +1544,7 @@ float GetResults(float results[], float XValues[], char charExpression[], byte R
   length = SetbyteExpression(charExpression, values, conversion);
   byte LargestIndices[2];
   float SpecificXValue = 0;
-  convertXsToIndices(conversion, LargestIndices);
+  convertXsToIndices(conversion, LargestIndices,length);
   for (byte i = 0; i < RunThisManyTimes / 2; i++) {
     PlaceXValues(values, LargestIndices, SpecificXValue);
     results[i] = postfixevaulation(length, conversion, values);
