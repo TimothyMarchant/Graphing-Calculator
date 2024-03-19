@@ -1,9 +1,9 @@
 /*
-The purpose of this project was to make a graphing calculator (granted not to the same standard as a TI-84 etc)
-The actual disign of the circuit is just 4 shift registers, 32 buttons, and an OLED screen, I plan on adding a FRAM chip to save character arrays.
+The purpose of this project was to make a graphing calculator (granted not to the same standard as a TI-84 or something similiar)
+The actual design of the circuit is just 4 shift registers, 32 buttons, and an OLED screen, I plan on adding a FRAM chip to save character arrays.
 */
 //libarys to include
-//may use eeprom to save tables of data(?);  Like perfect squares maybe(?);
+//may use eeprom to save tables of data(?);  Like perfect squares maybe(?);  It might not even be in the final version.
 #include <EEPROM.h>
 //graphics library and setup
 #include <Adafruit_GFX.h>
@@ -12,7 +12,9 @@ The actual disign of the circuit is just 4 shift registers, 32 buttons, and an O
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
+bool TESTINGPARSER = false;
+bool TESTINGCONVERSION = false;
+bool TESTINGEVALUATION = false;
 /*the screen can print 21 characters per line.  The print method will automatically goto the next line
   upon running out of space.*/
 /*
@@ -27,7 +29,7 @@ const byte datapin = 7;
 /*
   We store the actual expression someone types into a char array called charExpression
   We then convert it for evaulation purposes into a byte array called expression.  The actual values of each number in the char array is saved into a float array called values
-  Operators are 249=+, 250=*, 251=/, 252=^ 253=( 254=);
+  Operators in the byte array are 249=+, 250=*, 251=/, Power=^ 253=( 254=);
   Variables willed be stored as 200 (in particular 200='x');
   we have a max expression length in concern for memory.
 */
@@ -57,11 +59,15 @@ const byte RightPar = 254;
 //these two are special values for detecting things.
 const byte error = 255;
 const byte nodecimal = 255;
-//Special functions
 const byte X = 200;
-const byte sine = 210;
+//it should be noted that for Sine, Cosine, and Tangent that they will always be in the form Sin(x), cos(x), etc.  So in the parser they're easier to work with.
+const byte Sine = 210;
 const byte Cosine = 211;
 const byte Tangent = 212;
+//pi approximated to 7 decimal places.
+const float pi=3.1415927;
+//the mathematical constant e approximated to 7 decimal places.
+const float e=2.7182818;
 //stack class, needed for postfix evaulation and conversion.
 class ByteStack {
 public:
@@ -199,6 +205,49 @@ float power(float number, int Power) {
   }
   return newvalue;
 }
+void printarray(byte expression[], byte index) {
+  for (byte i = 0; i < index; i++) {
+    switch (expression[i]) {
+      case Plus:
+        Serial.print("+");
+        break;
+      case Times:
+        Serial.print("*");
+        break;
+      case Divide:
+        Serial.print("/");
+        break;
+      case Power:
+        Serial.print("^");
+        break;
+      case LeftPar:
+        Serial.print("(");
+        break;
+      case RightPar:
+        Serial.print(")");
+        break;
+      case X:
+        Serial.print("x");
+        break;
+      case Sine:
+        Serial.print("SIN");
+        break;
+      case Cosine:
+        Serial.print("COS");
+        break;
+      case Tangent:
+        Serial.print("TAN");
+        break;
+      default:
+        Serial.print(expression[i]);
+        break;
+    }
+    Serial.print(" ");
+  }
+  Serial.print("INDEX LENGTH: ");
+  Serial.println(index);
+  Serial.println();
+}
 //CHAR PARSER
 /*
 This section of the code parses what the user typed.  We convert it into something that the computer can more easily read, and the result will be used in the postfix conversion stage.
@@ -227,35 +276,26 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
   //bool is here to check if a value is negative when parsing.
   bool isNegative = false;
   //we have these starting if statements for weird cases that start on them, how the parser is made prevents them from being read on the first iteration.
-    if (charExpression[0]=='x'){
-      expression[Eindex]=200;
-      Eindex++;
-    }
-    else if (charExpression[0]=='('){
-      expression[Eindex]=LeftPar;
-      Eindex++;
-    }
-    else if (charExpression[0] == '-' && (charExpression[1] == 'x' || charExpression[1] == '(')) {
+  //This method sets up the inital index, if nothing is to be added nothing happens.
+  Eindex = StartofParse(expression, Eindex, CheckForSpecialOP(charExpression[0]));
+  //we have an operator if greater than 199.
+  if (charindex > 1 && charExpression[0] == '-' && CheckForSpecialOP(charExpression[1]) >= X) {
     values[Findex] = -1;
     expression[Eindex] = Findex;
     expression[Eindex + 1] = Times;
     Findex++;
     Eindex += 2;
   }
-  bool skipped=false;
+  bool skipped = false;
   //run until we reach the end of the chararray or where we last entered on the array, which ever is closer.
   //NOTE if you see "return error", error is for detecting that something went wrong, error is set to 255 which is never used for anything so I made it for telling the enter method to stop and print to Serial monitor.
   //will make better error handling later on.
   for (byte i = 0; i < charindex; i++) {
-    if (charExpression[i]=='x'&&expression[Eindex]!=200&&skipped){
-      expression[Eindex]=200;
-      Eindex++;
-      skipped=false;
-    }
-    if (charExpression[i]=='('&&expression[Eindex]!=LeftPar&&skipped){
-      expression[Eindex]=LeftPar;
-      Eindex++;
-      skipped=false;
+    //check for skipped value if not a special operator, simply move on, because it must be a number.
+    if (skipped) {
+      Eindex = StartofParse(expression, Eindex, CheckForSpecialOP(charExpression[i]));
+      //no need to keep this considered true regardless of what happens.
+      skipped = false;
     }
     //this conditional exists to check if we're at our first digit or not for a number.
     if (firstdigit) {
@@ -288,17 +328,23 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
       }
     }
     //terminate the loop, and place the final number (if present) into the byte and float arrays.
-    if ((i + 1 == charindex || charExpression[i + 1] == 0) && charExpression[i] != 'x') {
+    if ((i + 1 == charindex || charExpression[i + 1] == 0)) {
+      //If this runs it's an operator.
+      if (firstdigit) {
+        break;
+      }
       convertnumber(temp, i + 1, decimalpoint, Findex, isNegative, charExpression, values);
       expression[Eindex] = Findex;
       Eindex++;
       break;
     }
-    //since we've already played 'x' from the switch from before we don't need to do anything on the last pass.
-    else if (i + 1 == charindex && charExpression[i] == 'x') {
+    //since we've already placed 'x' from the switch from before we don't need to do anything on the last pass.
+    //we also don't have to do anything for trig functions since you can never end on a trig function like 1+2+SIN
+    //it's always in the form SIN(f(x));
+    /*else if (i + 1 == charindex && charExpression[i] == 'x') {
       Eindex++;
       break;
-    }
+    }*/
     //This switch check for the next character to see if it's an operator.
     //if so we have several cases to check for what we need to do to handle it.
     switch (charExpression[i + 1]) {
@@ -324,13 +370,12 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
         //for when someone types 1--2.  Which is the same as 1+2.
         if (charExpression[i] == '-') {
           i++;
-          isNegative=false;
-          skipped=true;
+          isNegative = false;
+          skipped = true;
         } else if (!firstdigit) {
           if (charExpression[i] != 'x') {
             Eindex = setexpression(Plus, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
             Findex++;
-            Serial.println("MINUS");
           } else {
             expression[Eindex] = Plus;
             Eindex++;
@@ -338,17 +383,19 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
           firstdigit = true;
           decimalpoint = nodecimal;
           //if the next character after '-' then we add an extra value, -1 and add operator * (Times) and then put down the left parthese.
-          if (i + 2 < charindex && (charExpression[i + 2] == '(' || charExpression[i + 2] == 'x')) {
+          if (i + 2 < charindex && CheckForSpecialOP(charExpression[i + 2]) >= X) {
             expression[Eindex] = Findex;
             values[Findex] = -1;
             Findex++;
             expression[Eindex + 1] = Times;
             if (charExpression[i + 2] == '(') {
               expression[Eindex + 2] = LeftPar;
+            } else if (charExpression[i + 2] == 'S') {
+              expression[Eindex + 2] = Sine;
             }
             //That is charExpression[i+2]='x'.
             else {
-              expression[Eindex + 2] = 200;
+              expression[Eindex + 2] = X;
             }
             Eindex += 3;
             i++;
@@ -356,7 +403,7 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
         }
         //exists for same reason as before.  I will look for a better way to make this look nicer.  and yes this needs to be in both places
         //I'm not exactly sure why me just putting this as an if and removing the top one breaks the code, but I'm trying to figure it out.
-        else if (i + 2 < charindex && (charExpression[i + 2] == '(' || charExpression[i + 2] == 'x')) {
+        else if (i + 2 < charindex && CheckForSpecialOP(charExpression[i + 2]) >= X) {
           expression[Eindex] = Plus;
           Eindex++;
           expression[Eindex] = Findex;
@@ -365,10 +412,12 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
           expression[Eindex + 1] = Times;
           if (charExpression[i + 2] == '(') {
             expression[Eindex + 2] = LeftPar;
+          } else if (charExpression[i + 2] == 'S') {
+            expression[Eindex + 2] = Sine;
           }
           //That is charExpression[i+2]='x'.
           else {
-            expression[Eindex + 2] = 200;
+            expression[Eindex + 2] = X;
           }
           Eindex += 3;
           i++;
@@ -421,18 +470,13 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
           //if the distance is one, then the previous index was either a single digit number or operator.
           //we do nothing for an operator since the previous cases place them down already.
           if (charExpression[temp] <= 57 && charExpression[temp] >= 48) {
-            expression[Eindex] = Findex;
-            values[Findex] = (float)(charExpression[temp] - 48);
-            if (isNegative) {
-              values[Findex] *= -1;
-            }
+            Eindex = NextToSpecialOP(expression, charExpression, values, Eindex, Findex, temp, isNegative);
             Findex++;
-            expression[Eindex + 1] = Times;
-            Eindex += 2;
           } else if (charExpression[temp] == 'x') {
             expression[Eindex] = Times;
             Eindex++;
           }
+          //for sine, cosine, and tangent we don't have to do anything special.
           expression[Eindex] = LeftPar;
           Eindex++;
         } else {
@@ -464,7 +508,8 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
           //otherwise start at the new operator and work from there.
           //for example in (3+2)+5; this part of the switch starts at 2, we move i one to avoid the ) next to 2
           //and on the next pass we start at +.
-          i++;
+          if (i+2<charindex&&charExpression[i+2]!=0) {
+            i++;
           if (charExpression[i + 1] != ')') {
             Eindex = whichoperator(charExpression[i + 1], Eindex, expression);
           } else {
@@ -473,6 +518,7 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
               Eindex++;
               i++;
             }
+          }
           }
         }
         firstdigit = true;
@@ -485,19 +531,82 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
           //if the distance is one, then the previous index was either a single digit number or operator.
           //we do nothing for an operator since the previous cases place them down already.
           if (charExpression[temp] <= 57 && charExpression[temp] >= 48) {
-            expression[Eindex] = Findex;
-            values[Findex] = (float)(charExpression[temp] - 48);
-            if (isNegative) {
-              values[Findex] *= -1;
-            }
+            Eindex = NextToSpecialOP(expression, charExpression, values, Eindex, Findex, temp, isNegative);
             Findex++;
-            expression[Eindex + 1] = Times;
-            Eindex += 2;
           }
-          expression[Eindex] = 200;
+          expression[Eindex] = X;
           Eindex++;
         } else {
-          Eindex = setexpression(200, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Eindex = setexpression(X, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Findex++;
+        }
+        firstdigit = true;
+        decimalpoint = nodecimal;
+        break;
+      case 'S':
+        //that is we're right next to our starting point
+        if (temp + 1 == i + 1) {
+          //if the distance is one, then the previous index was either a single digit number or operator.
+          //we do nothing for an operator since the previous cases place them down already.
+          if (charExpression[temp] <= 57 && charExpression[temp] >= 48) {
+            Eindex = NextToSpecialOP(expression, charExpression, values, Eindex, Findex, temp, isNegative);
+            Findex++;
+          }
+          //we only need to worry about x, as ')' is already taken care of in the whichoperator method.  This exact same code will work for COS and TAN.
+          else if (charExpression[i] == 'x') {
+            expression[Eindex] = Times;
+            Eindex++;
+          }
+          expression[Eindex] = Sine;
+          Eindex++;
+        } else {
+          Eindex = setexpression(Sine, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Findex++;
+        }
+        firstdigit = true;
+        decimalpoint = nodecimal;
+        break;
+      case 'C':
+        //that is we're right next to our starting point
+        if (temp + 1 == i + 1) {
+          //if the distance is one, then the previous index was either a single digit number or operator.
+          //we do nothing for an operator since the previous cases place them down already.
+          if (charExpression[temp] <= 57 && charExpression[temp] >= 48) {
+            Eindex = NextToSpecialOP(expression, charExpression, values, Eindex, Findex, temp, isNegative);
+            Findex++;
+          }
+          //we only need to worry about x, as ')' is already taken care of in the whichoperator method.  This exact same code will work for COS and TAN.
+          else if (charExpression[i] == 'x') {
+            expression[Eindex] = Times;
+            Eindex++;
+          }
+          expression[Eindex] = Cosine;
+          Eindex++;
+        } else {
+          Eindex = setexpression(Cosine, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
+          Findex++;
+        }
+        firstdigit = true;
+        decimalpoint = nodecimal;
+        break;
+      case 'T':
+        //that is we're right next to our starting point
+        if (temp + 1 == i + 1) {
+          //if the distance is one, then the previous index was either a single digit number or operator.
+          //we do nothing for an operator since the previous cases place them down already.
+          if (charExpression[temp] <= 57 && charExpression[temp] >= 48) {
+            Eindex = NextToSpecialOP(expression, charExpression, values, Eindex, Findex, temp, isNegative);
+            Findex++;
+          }
+          //we only need to worry about x, as ')' is already taken care of in the whichoperator method.  This exact same code will work for COS and TAN.
+          else if (charExpression[i] == 'x') {
+            expression[Eindex] = Times;
+            Eindex++;
+          }
+          expression[Eindex] = Tangent;
+          Eindex++;
+        } else {
+          Eindex = setexpression(Tangent, temp, i + 1, decimalpoint, Findex, isNegative, Eindex, charExpression, expression, values);
           Findex++;
         }
         firstdigit = true;
@@ -507,37 +616,42 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
   }
   //left in here for debugging purposes, this is useful for when I need to know when this method is messed up somewhere.
   Serial.print("Expression:");
-  for (byte i = 0; i < Eindex; i++) {
-    switch (expression[i]) {
-      case Plus:
-        Serial.print("+");
-        break;
-      case Times:
-        Serial.print("*");
-        break;
-      case Divide:
-        Serial.print("/");
-        break;
-      case Power:
-        Serial.print("^");
-        break;
-      case LeftPar:
-        Serial.print("(");
-        break;
-      case RightPar:
-        Serial.print(")");
-        break;
-      case 200:
-        Serial.print("x");
-      default:
-        Serial.print(expression[i]);
-        break;
-    }
-    Serial.print(" ");
-  }
-  Serial.println();
+  printarray(expression, Eindex);
   //needed to know how long to run postfixconversion method.
+
   return Eindex;
+}
+byte CheckForSpecialOP(char temp) {
+  switch (temp) {
+    case 'x':
+      return X;
+    case 'S':
+      return Sine;
+    case 'C':
+      return Cosine;
+    case 'T':
+      return Tangent;
+    case '(':
+      return LeftPar;
+    default:
+      return 0;
+  }
+}
+byte StartofParse(byte expression[], byte Eindex, byte OP) {
+  if (OP == 0) {
+    return Eindex;
+  }
+  expression[Eindex] = OP;
+  return Eindex + 1;
+}
+byte NextToSpecialOP(byte expression[], char charExpression[], float values[], byte Eindex, byte Findex, byte temp, bool isNegative) {
+  expression[Eindex] = Findex;
+  values[Findex] = (float)(charExpression[temp] - 48);
+  if (isNegative) {
+    values[Findex] *= -1;
+  }
+  expression[Eindex + 1] = Times;
+  return Eindex += 2;
 }
 //this method actual converts each number in the char array into it's actual value into a floating point number (e.g if you have 21+32, this method will convert 21 and 32 correctly and put it into a float value).
 void convertnumber(byte first, byte last, byte decimalpoint, byte floatindex, bool isNegative, char charExpression[], float values[]) {
@@ -546,7 +660,6 @@ void convertnumber(byte first, byte last, byte decimalpoint, byte floatindex, bo
     decimalpoint = last;
   }
   int Power = decimalpoint - first - 1;
-  Serial.println(decimalpoint);
   //run until we reach the decimal point
   for (byte i = first; i < decimalpoint; i++) {
     //the temp variables is found by subtracting the value 48 from the assci value in charExpression[i].  the 48 is there since the assci value of 0 is 48, so to get the actual value we have to subtract 48.
@@ -620,7 +733,22 @@ int whichoperator(char OP, byte index, byte expression[]) {
     case 'x':
       expression[index] = Times;
       index++;
-      expression[index] = 200;
+      expression[index] = X;
+      break;
+    case 'S':
+      expression[index] = Times;
+      index++;
+      expression[index] = Sine;
+      break;
+    case 'C':
+      expression[index] = Times;
+      index++;
+      expression[index] = Cosine;
+      break;
+    case 'T':
+      expression[index] = Times;
+      index++;
+      expression[index] = Tangent;
       break;
   }
   //need to update index
@@ -634,8 +762,8 @@ byte setexpression(byte OP, byte temp, byte last, byte decimal, byte Findex, boo
   expression[Eindex] = Findex;
   Findex++;
   Eindex++;
-  //multiply if the operator is "(" or "x"
-  if (OP == LeftPar || OP == 200) {
+  //multiply if the operator is "(", "x" or a trig function
+  if (OP == LeftPar || OP == X || OP == Sine || OP == Cosine || OP == Tangent) {
     expression[Eindex] = Times;
     Eindex++;
   }
@@ -660,6 +788,7 @@ byte PopOPS(byte index, ByteStack *stack, byte conversion[], bool endofpar, byte
     return index;
   } else if (!stack->isEmpty() && stack->Peek() == temp) {
     conversion[index] = stack->Pop();
+    index++;
   } else if (currentop == RightPar) {
     while ((!stack->isEmpty()) && stack->Peek() != LeftPar) {
       conversion[index] = stack->Pop();
@@ -677,14 +806,35 @@ byte PopOPS(byte index, ByteStack *stack, byte conversion[], bool endofpar, byte
   }
   //actually remove the left partheses.
   if (endofpar) {
-    Serial.println(stack->Pop());
+    stack->Pop();
   }
-  Serial.print("POPOPS");
-  Serial.println();
+  //checks to see if it's a trig function.  If not do nothing.  If so pop it.
+  index = IsTrigFunction(stack, index, conversion);
   return index;
+}
+byte IsTrigFunction(ByteStack *stack, byte index, byte conversion[]) {
+  switch (stack->Peek()) {
+    case Sine:
+      conversion[index] = Sine;
+      break;
+    case Cosine:
+      conversion[index] = Cosine;
+      break;
+    case Tangent:
+      conversion[index] = Tangent;
+      break;
+    default:
+      return index;
+  }
+  stack->Pop();
+  return index + 1;
 }
 //converts regular infix expression into postfix-notation.
 byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
+  if (ELength==1){
+    conversion[0]=expression[0];
+    return ELength;
+  }
   //stack class needed for postfix conversion.
   ByteStack *stack = new ByteStack(30);
   //new index for determing where to put stuff in the new converted array.
@@ -693,7 +843,7 @@ byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
   bool seenzero = false;
   for (byte i = 0; i < ELength; i++) {
     //if operator do something based on what's in stack->
-    if (expression[i] >= Plus) {
+    if (expression[i] > X) {
       if (stack->isEmpty()) {
         stack->Push(expression[i]);
       }
@@ -703,41 +853,33 @@ byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
           index = PopOPS(index, stack, conversion, false, expression[i]);
         }
         stack->Push(expression[i]);
-        Serial.println(expression[i]);
-        Serial.println("TOP");
       }
       //always push '(' they won't be in the final conversion. Also make sure it's not a right parenthese.
       else if (stack->Peek() == LeftPar && expression[i] != RightPar) {
         stack->Push(expression[i]);
-        Serial.println(expression[i]);
-        Serial.println("MIDDLE");
       }
       //The end of ')' implies that we pop off all operators contained in the parentheses.
       else if (expression[i] != LeftPar) {
         if (expression[i] == RightPar) {
           index = PopOPS(index, stack, conversion, true, expression[i]);
-          Serial.println("POP");
-        } else {
-
+        }
+        //if it's a trig function it's special.  We simply need to push it and when we pop off the operators it will always be behind a left parathese.  The very next thing that will be pushed is '('.
+        else if (expression[i] == Sine || expression[i] == Cosine || expression[i] == Tangent) {
+          stack->Push(expression[i]);
+        }
+         else {
           index = PopOPS(index, stack, conversion, false, expression[i]);
-          Serial.println(expression[i]);
-          Serial.println("BOTTOM");
           stack->Push(expression[i]);
         }
       }
+      
     }
     //otherwise just put into the conversion array.
     else {
-      if (seenzero && expression[i] == 0) {
-        break;
-      }
-      if (expression[i] == 0) {
-        seenzero = true;
-      }
       conversion[index] = expression[i];
       index++;
     }
-    delay(1);
+    
   }
   if (!stack->isEmpty()) {
     index = PopOPS(index, stack, conversion, false, 0);
@@ -745,35 +887,7 @@ byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
   delete stack;
   stack = nullptr;
   Serial.print("Conversion: ");
-  for (byte i = 0; i < index; i++) {
-    switch (conversion[i]) {
-      case Plus:
-        Serial.print("+");
-        break;
-      case Times:
-        Serial.print("*");
-        break;
-      case Divide:
-        Serial.print("/");
-        break;
-      case Power:
-        Serial.print("^");
-        break;
-      case LeftPar:
-        Serial.print("(");
-        break;
-      case RightPar:
-        Serial.print(")");
-        break;
-      case 200:
-        Serial.print("x");
-        break;
-      default:
-        Serial.print(conversion[i]);
-        break;
-    }
-    Serial.print(" ");
-  }
+  printarray(conversion, index);
   Serial.println();
   return index;
 }
@@ -799,13 +913,70 @@ byte operation(byte Left, byte OP, byte Right, float tempvalues[]) {
       tempvalues[Left] = power(tempvalues[Left], (int)tempvalues[Right]);
       break;
   }
-  delay(1);
+  //delay(1);
   return Left;
+}
+//enforce periodicty of a periodic function.
+float Periodicty(float Value,float period){
+  if (Value>period){
+    //Temp is the number of times Value Exceeds the period.
+    long temp=Value/period;
+    //We multiply by period and temp (temp is an integer) to get the correct position of where Value actually is.
+    Value-=temp*period;
+  }
+  return Value;
+}
+byte TrigOperation(byte operand, byte trigfunction,float tempvalues[]){
+  float temp=tempvalues[operand];
+  //6.283185 corresponds to 2*pi.
+  //Also we have this to preserve the periodicity of sin and cosine.  Tangent has a slightly different periodcity.
+  if (trigfunction!=Tangent){
+  if (temp<0){
+  temp=-1*Periodicty(-1*temp,(float) 2*pi);
+  }
+  else {
+  temp=Periodicty(temp,(float) 2*pi);
+  }
+  }
+  else {
+
+  }
+  float temp2=0;
+  //this shifted variable is for when we have to shift temp since it will not be approximated as well past Pi.
+  bool Shifted=false;
+  switch (trigfunction){
+    //recall that sine is an odd function.  That is Sin(-x)=-sinx
+    case Sine:
+    if (temp>pi&&temp>0){
+      //Need to shift to get a correct approximation of pi.
+      temp-=pi;
+      Shifted=true;
+    }
+    else if (temp<-1*pi&&temp<0){
+      //temp will still be <0 but we need to shift to the right of pi to get a correct approxmatiation of sinx.
+      temp+=pi;
+      Shifted=true;
+    }
+    //taylor series of sinx up to five terms.
+    temp2=temp-(power(temp,3)/6)+power(temp,5)/120-power(temp,7)/5040+power(temp,9)/362880;
+    //if we shifted temp multiply by -1 to get the correct value of sinx.
+    if (Shifted){
+      temp2*=-1;
+    }
+    break;
+    //Cosine is an even function so Cos(-x)=Cos(x);
+    case Cosine:
+    break;
+    case Tangent:
+    break;
+  }
+  tempvalues[operand]=temp2;
+  return operand;
 }
 //Postfix evaulation method.  This is how we evaluate things in postfix correctly.
 float postfixevaulation(byte length, byte conversion[], float values[]) {
-  //for when you just enter one thing no need to do anything else.
-  if (length == 1) {
+  //if the conversion is length 1 then there's nothing to do, just return the first value as the result is simply just a number.
+  if (length==1){
     return values[0];
   }
   ByteStack *stack = new ByteStack(length);
@@ -817,11 +988,17 @@ float postfixevaulation(byte length, byte conversion[], float values[]) {
   }
   //run until we reach the end of the conversion array and return that result.
   for (byte i = 0; i < length; i++) {
-    if (conversion[i] < Plus) {
+    if (conversion[i] <=X) {
       stack->Push(conversion[i]);
-    } else {
+    }
+    //sine/cosine/tangent acts on only one value
+    else if (conversion[i]==Sine||conversion[i]==Cosine||conversion[i]==Tangent){
+      byte Left=stack->Pop();
+      stack->Push(TrigOperation(Left,conversion[i],tempvalues));
+    } 
+    //for standard operators.
+    else {
       byte Right = stack->Pop();
-      delay(5);
       byte Left = stack->Pop();
       stack->Push(operation(Left, conversion[i], Right, tempvalues));
       if (stack->Peek() == error) {
@@ -946,9 +1123,9 @@ void Shift2(byte data, char charExpression[]) {
 }
 //mostly special functions like e or sin and (, )
 //the special functions are planned for later.
-//2nd Shift register in the daisy chain
+//3nd Shift register in the daisy chain
 void Shift3(byte data, char charExpression[]) {
-  if (DrawingGraph || ScalingMode) {
+  if (DrawingGraph || ScalingMode || charindex >= MaxCharIndex) {
     return;
   }
   switch (data) {
@@ -961,13 +1138,22 @@ void Shift3(byte data, char charExpression[]) {
       charExpression[charindex] = ')';
       break;
     case 0b00000100:
-      //display.print("sin(");
+      display.print("sin(");
+      charExpression[charindex] = 'S';
+      charindex++;
+      charExpression[charindex] = '(';
       break;
     case 0b00001000:
-      //display.print("cos(");
+      display.print("cos(");
+      charExpression[charindex] = 'C';
+      charindex++;
+      charExpression[charindex] = '(';
       break;
     case 0b00010000:
-      //display.print("tan(");
+      display.print("tan(");
+      charExpression[charindex] = 'T';
+      charindex++;
+      charExpression[charindex] = '(';
       break;
     case 0b00100000:
       //display.print('e');
@@ -976,8 +1162,12 @@ void Shift3(byte data, char charExpression[]) {
     case 0b01000000:
       //display.print("ln(");
       break;
+      //square the number
     case 0b10000000:
-      //display.print("^2");
+      display.print("^2");
+      charExpression[charindex] = '^';
+      charindex++;
+      charExpression[charindex] = 2;
       break;
   }
   charindex++;
@@ -1111,7 +1301,6 @@ void SetScalingFactor() {
   while (ScalingMode) {
     checkforinputs(charExpression);
   }
-  delay(5);
   display.println();
   if (PressedEnter) {
     //the arrays are dummy variables for charparser, since it parses a single number.
@@ -1123,7 +1312,6 @@ void SetScalingFactor() {
   }
   //set to false so that it's reset to normal state.
   PressedEnter = false;
-  Serial.println("Finished");
   display.clearDisplay();
   display.display();
   display.setCursor(0, 0);
@@ -1199,7 +1387,20 @@ void checkforinputs(char charExpression[]) {
 //reprint whatever the expression was.
 void printmainmenu(char charExpression[]) {
   for (byte i = 0; i < charindex; i++) {
-    display.print(charExpression[i]);
+    switch (charExpression[i]) {
+      case 'S':
+        display.print("Sin");
+        break;
+      case 'C':
+        display.print("Cos");
+        break;
+      case 'T':
+        display.print("Tan");
+        break;
+      default:
+        display.print(charExpression[i]);
+        break;
+    }
   }
 }
 //Calls charParser and PostFixConversion returns the postfix conversion of expression.
@@ -1209,6 +1410,9 @@ byte SetbyteExpression(char charexp[], float values[], byte conversion[]) {
   byte Elength = 0;
   setarrays(expression, values, conversion);
   Elength = CharParser(charexp, expression, values);
+  if (TESTINGPARSER) {
+    return 0;
+  }
   if (Elength == error) {
     Serial.println("FAIL");
     clear(charexp);
@@ -1234,11 +1438,13 @@ void Enter(char charExpression[]) {
   float values[50];
   byte conversion[80];
   byte length = SetbyteExpression(charExpression, values, conversion);
-  delay(50);
+  if (TESTINGPARSER || TESTINGCONVERSION) {
+    return;
+  }
   byte LargestIndices[2];
-  convertXsToIndices(conversion, LargestIndices);
-  Serial.println();
+  convertXsToIndices(conversion, LargestIndices,length);
   //just give x values a default value for when you press enter.  For testing, also in case someone types it into main menu.
+  //the 2 here is a test value.
   PlaceXValues(values, LargestIndices, 2);
   if (EvaulatedOnce) {
     display.clearDisplay();
@@ -1273,7 +1479,7 @@ void ClearcharExpression(char charExpression[]) {
 void MainMode() {
   display.setCursor(0, 0);
   display.display();
-  char charExpression[63];
+  char charExpression[MaxCharIndex];
   ClearcharExpression(charExpression);
   while (!GraphMode) {
     checkforinputs(charExpression);
@@ -1284,7 +1490,7 @@ void GraphingMode() {
   //the only limitations of this method is that it supports only one function and doesn't save after you press exit (although it saves after pressing draw, and scale).
   //I planned on adding some FRAM chips to save typed in character expressions.  Since you can change expressions a lot I didn't think using EEPROM would be a good idea
   display.clearDisplay();
-  char charExpression[63];
+  char charExpression[MaxCharIndex];
   ClearcharExpression(charExpression);
   display.setCursor(0, 0);
   display.print("Y=");
@@ -1294,28 +1500,31 @@ void GraphingMode() {
   }
 }
 //This method looks for the largest index used in values, and from that fills all the X's with float indexes after that index
-void convertXsToIndices(byte conversion[], byte indices[]) {
-  byte largestindex = 0;
-  for (byte i = 0; i < 80; i++) {
-    if (conversion[i] < 200 && largestindex < conversion[i]) {
+void convertXsToIndices(byte conversion[], byte indices[],byte length) {
+  signed char largestindex = -1;
+  byte tempindex=0;
+  for (byte i = 0; i < length; i++) {
+    if (conversion[i] < X && largestindex < conversion[i]) {
       largestindex = conversion[i];
+     
     }
   }
   //need to start at the next index.
   largestindex++;
-  byte tempindex = largestindex;
+  tempindex = largestindex;
   //fill in the converted char array
-  for (byte i = 0; i < 80; i++) {
-    if (conversion[i] == 200) {
+  for (byte i = 0; i < length; i++) {
+    if (conversion[i] == X) {
       conversion[i] = tempindex;
       tempindex++;
     }
   }
-  indices[0] = largestindex;
+  indices[0] = (byte) largestindex;
   indices[1] = tempindex;
 }
 //Places X values into the float array values.  Indices is the starting point for where the x positions are and the ending point.
 void PlaceXValues(float values[], byte indices[], float XValue) {
+
   for (byte i = indices[0]; i < indices[1]; i++) {
     values[i] = XValue;
   }
@@ -1325,27 +1534,22 @@ float GetResults(float results[], float XValues[], char charExpression[], byte R
   float values[50];
   byte conversion[80];
   byte length = 0;
-  length = SetbyteExpression(charExpression, values, conversion);
-  /*for debugging will use later for when I implement trig functions
-  Serial.print("Conversion: ");
-  for (byte i = 0; i < length; i++) {
-    if (conversion[i] == 200) {
-      Serial.print("x");
-    } else {
-      Serial.print(conversion[i]);
-    }
-    Serial.print(" ");
+  //since we're taking in 250 float values we can change the magnitude of the x-values.
+  if (scale<4){
+  scale*=2;
   }
-  Serial.println();*/
+  else {
+    scale*=1.3;
+  }
+  length = SetbyteExpression(charExpression, values, conversion);
   byte LargestIndices[2];
   float SpecificXValue = 0;
-  convertXsToIndices(conversion, LargestIndices);
+  convertXsToIndices(conversion, LargestIndices,length);
   for (byte i = 0; i < RunThisManyTimes / 2; i++) {
     PlaceXValues(values, LargestIndices, SpecificXValue);
     results[i] = postfixevaulation(length, conversion, values);
     XValues[i] = SpecificXValue;
     SpecificXValue -= 1 / scale;
-    delay(15);
   }
   SpecificXValue = 0;
   for (byte i = RunThisManyTimes / 2; i < RunThisManyTimes; i++) {
@@ -1353,7 +1557,6 @@ float GetResults(float results[], float XValues[], char charExpression[], byte R
     results[i] = postfixevaulation(length, conversion, values);
     XValues[i] = SpecificXValue;
     SpecificXValue += 1 / scale;
-    delay(15);
   }
 }
 //checking to make sure we're not outside the screen's dimensions.
@@ -1370,7 +1573,8 @@ bool isExceedingScreenDimensions(float results[], float XValues[], byte i) {
 void DrawGraph(char charExpression[]) {
   //parameter for how many floats we want to generate.  For 50 floats it took for a medium sized (about 21-24 characters) about 3(?) seconds to calculate and draw.
   //100 floats takes about 5 or so seconds.
-  const byte runthismanytimes = 100;
+  //using 250 takes up about 2000 bytes of sram from the floats.
+  const byte runthismanytimes = 250;
   //might make these larger later.
   float results[runthismanytimes];
   float XValues[runthismanytimes];
@@ -1380,12 +1584,8 @@ void DrawGraph(char charExpression[]) {
   display.drawFastVLine(64, 0, 64, WHITE);
   display.display();
   GetResults(results, XValues, charExpression, runthismanytimes, scale);
-  Serial.println("HERE");
   //we need to setup where to draw things, the center of the screen is (64,32) since it's 128X64.
   for (byte i = 0; i < runthismanytimes; i++) {
-    //Serial.print(i);
-    //Serial.print(" Result: ");
-    //Serial.println(results[i]);
     XValues[i] *= scale;
     //multiply by -1 since the screen's origin starts at the top left of the screen, to make it look like it's going up, we multiply by -1.
     results[i] *= scale * -1;
