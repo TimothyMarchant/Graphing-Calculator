@@ -11,6 +11,10 @@ The actual design of the circuit is just 4 shift registers, 32 buttons, and an O
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
+//pins to use and read shift register.
+#define latchpin 3
+#define clockpin 5
+#define datapin 7
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 bool TESTINGPARSER = false;
 bool TESTINGCONVERSION = false;
@@ -22,10 +26,6 @@ bool TESTINGEVALUATION = false;
   it's size 4 since we have 4 shift registers.
   The shift registers are read from closest to microcontroller to furthest.*/
 byte ShiftData[4];
-//pins to use and read shift register.
-const byte latchpin = 3;
-const byte clockpin = 5;
-const byte datapin = 7;
 /*
   We store the actual expression someone types into a char array called charExpression
   We then convert it for evaulation purposes into a byte array called expression.  The actual values of each number in the char array is saved into a float array called values
@@ -47,27 +47,53 @@ bool DrawingGraph = false;
 bool GraphMode = false;
 bool ScalingMode = false;
 bool PressedEnter = false;
-//default value
+//default value for scaling.
 float ScalingFactor = 10;
 //operator values set to const values
-const byte Plus = 249;
-const byte Times = 250;
-const byte Divide = 251;
-const byte Power = 252;
-const byte LeftPar = 253;
-const byte RightPar = 254;
-//these two are special values for detecting things.
-const byte error = 255;
-const byte nodecimal = 255;
-const byte X = 200;
-//it should be noted that for Sine, Cosine, and Tangent that they will always be in the form Sin(x), cos(x), etc.  So in the parser they're easier to work with.
-const byte Sine = 210;
-const byte Cosine = 211;
-const byte Tangent = 212;
+enum Operators : byte {
+  //to add another operator use a value larger than 200.
+  //if you want to add another variable you could use a value between 190 and 200.
+  Plus = 249,
+  Times= 250,
+  Divide = 251,
+  Power= 252,
+  LeftPar = 253,
+  RightPar =254,
+  //error value
+  error=255,
+  nodecimal=255,
+  X=200,
+  Sine = 210,
+  Cosine = 211,
+  Tangent = 212,
+  //this is referring to e^x.
+  Exp=213,
+  //the natural logarithm.
+  Ln=214
+};
+//just assign the characters with an associated variable name so for when you want to add more operators for the parser we don't have to be too concerned with what character we pick for something.
+enum charOperators : char{
+  //do not use any numbers, the decimal point, or the null character as a character value for an operator..
+  CPlus='+',
+  CMinus='-',
+  CTimes='*',
+  CDivide='/',
+  CPower='^',
+  CLeftPar='(',
+  CRightPar=')',
+  CX='x',
+  CSine='S',
+  CCosine='C',
+  CTangent='T',
+  //the number e.
+  CE='e',
+  //natural log.
+  CLn='L'
+};
 //pi approximated to 7 decimal places.
-const float pi=3.1415927;
+const float pi = 3.1415927;
 //the mathematical constant e approximated to 7 decimal places.
-const float e=2.7182818;
+const float e = 2.7182818;
 //stack class, needed for postfix evaulation and conversion.
 class ByteStack {
 public:
@@ -508,17 +534,17 @@ byte CharParser(char charExpression[], byte expression[], float values[]) {
           //otherwise start at the new operator and work from there.
           //for example in (3+2)+5; this part of the switch starts at 2, we move i one to avoid the ) next to 2
           //and on the next pass we start at +.
-          if (i+2<charindex&&charExpression[i+2]!=0) {
+          if (i + 2 < charindex && charExpression[i + 2] != 0) {
             i++;
-          if (charExpression[i + 1] != ')') {
-            Eindex = whichoperator(charExpression[i + 1], Eindex, expression);
-          } else {
-            while (i + 1 != charindex && charExpression[i + 1] == ')') {
-              expression[Eindex] = RightPar;
-              Eindex++;
-              i++;
+            if (charExpression[i + 1] != ')') {
+              Eindex = whichoperator(charExpression[i + 1], Eindex, expression);
+            } else {
+              while (i + 1 != charindex && charExpression[i + 1] == ')') {
+                expression[Eindex] = RightPar;
+                Eindex++;
+                i++;
+              }
             }
-          }
           }
         }
         firstdigit = true;
@@ -831,8 +857,8 @@ byte IsTrigFunction(ByteStack *stack, byte index, byte conversion[]) {
 }
 //converts regular infix expression into postfix-notation.
 byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
-  if (ELength==1){
-    conversion[0]=expression[0];
+  if (ELength == 1) {
+    conversion[0] = expression[0];
     return ELength;
   }
   //stack class needed for postfix conversion.
@@ -866,20 +892,18 @@ byte postfixconversion(byte conversion[], byte expression[], byte ELength) {
         //if it's a trig function it's special.  We simply need to push it and when we pop off the operators it will always be behind a left parathese.  The very next thing that will be pushed is '('.
         else if (expression[i] == Sine || expression[i] == Cosine || expression[i] == Tangent) {
           stack->Push(expression[i]);
-        }
-         else {
+        } else {
           index = PopOPS(index, stack, conversion, false, expression[i]);
           stack->Push(expression[i]);
         }
       }
-      
+
     }
     //otherwise just put into the conversion array.
     else {
       conversion[index] = expression[i];
       index++;
     }
-    
   }
   if (!stack->isEmpty()) {
     index = PopOPS(index, stack, conversion, false, 0);
@@ -917,66 +941,80 @@ byte operation(byte Left, byte OP, byte Right, float tempvalues[]) {
   return Left;
 }
 //enforce periodicty of a periodic function.
-float Periodicty(float Value,float period){
-  if (Value>period){
+float Periodicty(float Value, float period) {
+  if (Value > period) {
     //Temp is the number of times Value Exceeds the period.
-    long temp=Value/period;
+    long temp = Value / period;
     //We multiply by period and temp (temp is an integer) to get the correct position of where Value actually is.
-    Value-=temp*period;
+    Value -= temp * period;
   }
   return Value;
 }
-byte TrigOperation(byte operand, byte trigfunction,float tempvalues[]){
-  float temp=tempvalues[operand];
-  //6.283185 corresponds to 2*pi.
-  //Also we have this to preserve the periodicity of sin and cosine.  Tangent has a slightly different periodcity.
-  if (trigfunction!=Tangent){
-  if (temp<0){
-  temp=-1*Periodicty(-1*temp,(float) 2*pi);
+byte TrigOperation(byte operand, byte trigfunction, float tempvalues[]) {
+  float temp = tempvalues[operand];
+  if (temp < 0) {
+    //multiply by -1 in the parameter to check periodcity is in the correct spot.
+    temp = -1 * Periodicty(-1 * temp, (float)2 * pi);
+  } else {
+    temp = Periodicty(temp, (float)2 * pi);
   }
-  else {
-  temp=Periodicty(temp,(float) 2*pi);
-  }
-  }
-  else {
-
-  }
-  float temp2=0;
+  float temp2 = 0;
   //this shifted variable is for when we have to shift temp since it will not be approximated as well past Pi.
-  bool Shifted=false;
-  switch (trigfunction){
+  bool Shifted = false;
+  switch (trigfunction) {
     //recall that sine is an odd function.  That is Sin(-x)=-sinx
     case Sine:
-    if (temp>pi&&temp>0){
-      //Need to shift to get a correct approximation of pi.
-      temp-=pi;
-      Shifted=true;
-    }
-    else if (temp<-1*pi&&temp<0){
-      //temp will still be <0 but we need to shift to the right of pi to get a correct approxmatiation of sinx.
-      temp+=pi;
-      Shifted=true;
-    }
-    //taylor series of sinx up to five terms.
-    temp2=temp-(power(temp,3)/6)+power(temp,5)/120-power(temp,7)/5040+power(temp,9)/362880;
-    //if we shifted temp multiply by -1 to get the correct value of sinx.
-    if (Shifted){
-      temp2*=-1;
-    }
-    break;
+      if (temp > pi && temp > 0) {
+        //Need to shift to get a correct approximation of pi.
+        temp -= pi;
+        Shifted = true;
+      } else if (temp < -1 * pi && temp < 0) {
+        //temp will still be <0 but we need to shift to the right of pi to get a correct approxmatiation of sinx.
+        temp += pi;
+        Shifted = true;
+      }
+      //taylor series of sinx up to five terms.
+      temp2 = temp - (power(temp, 3) / 6) + power(temp, 5) / 120 - power(temp, 7) / 5040 + power(temp, 9) / 362880;
+      //if we shifted temp multiply by -1 to get the correct value of sinx.
+      if (Shifted) {
+        temp2 *= -1;
+      }
+      break;
     //Cosine is an even function so Cos(-x)=Cos(x);
     case Cosine:
-    break;
+      if (temp > pi && temp > 0) {
+        //Need to shift to get a correct approximation of pi.
+        temp -= pi;
+        Shifted = true;
+      } else if (temp < -1 * pi && temp < 0) {
+        //temp will still be <0 but we need to shift to the right of pi to get a correct approxmatiation of sinx.
+        temp += pi;
+        Shifted = true;
+      }
+      temp2 = 1 - power(temp, 2) / 2 + power(temp, 4) / 24 - power(temp, 6) / 720 + power(temp, 8) / 40320 - power(temp, 10) / 3628800;
+      if (Shifted) {
+        temp2 *= -1;
+      }
+      break;
     case Tangent:
-    break;
+      //we just call this function twice we don't need to really care about what the operand actually is.
+      float temparr[2];
+      temparr[0]=temp;
+      temparr[1]=temp;
+      byte t = 0;
+      t = TrigOperation(0, Sine, temparr);
+      t = TrigOperation(1, Cosine, temparr);
+      //recall the identity tan(x)=sin(x)/cos(x);
+      temp2 = temparr[0] / temparr[1];
+      break;
   }
-  tempvalues[operand]=temp2;
+  tempvalues[operand] = temp2;
   return operand;
 }
 //Postfix evaulation method.  This is how we evaluate things in postfix correctly.
 float postfixevaulation(byte length, byte conversion[], float values[]) {
   //if the conversion is length 1 then there's nothing to do, just return the first value as the result is simply just a number.
-  if (length==1){
+  if (length == 1) {
     return values[0];
   }
   ByteStack *stack = new ByteStack(length);
@@ -988,14 +1026,14 @@ float postfixevaulation(byte length, byte conversion[], float values[]) {
   }
   //run until we reach the end of the conversion array and return that result.
   for (byte i = 0; i < length; i++) {
-    if (conversion[i] <=X) {
+    if (conversion[i] <= X) {
       stack->Push(conversion[i]);
     }
     //sine/cosine/tangent acts on only one value
-    else if (conversion[i]==Sine||conversion[i]==Cosine||conversion[i]==Tangent){
-      byte Left=stack->Pop();
-      stack->Push(TrigOperation(Left,conversion[i],tempvalues));
-    } 
+    else if (conversion[i] == Sine || conversion[i] == Cosine || conversion[i] == Tangent) {
+      byte Left = stack->Pop();
+      stack->Push(TrigOperation(Left, conversion[i], tempvalues));
+    }
     //for standard operators.
     else {
       byte Right = stack->Pop();
@@ -1167,7 +1205,7 @@ void Shift3(byte data, char charExpression[]) {
       display.print("^2");
       charExpression[charindex] = '^';
       charindex++;
-      charExpression[charindex] = 2;
+      charExpression[charindex] = '2';
       break;
   }
   charindex++;
@@ -1442,7 +1480,7 @@ void Enter(char charExpression[]) {
     return;
   }
   byte LargestIndices[2];
-  convertXsToIndices(conversion, LargestIndices,length);
+  convertXsToIndices(conversion, LargestIndices, length);
   //just give x values a default value for when you press enter.  For testing, also in case someone types it into main menu.
   //the 2 here is a test value.
   PlaceXValues(values, LargestIndices, 2);
@@ -1500,13 +1538,12 @@ void GraphingMode() {
   }
 }
 //This method looks for the largest index used in values, and from that fills all the X's with float indexes after that index
-void convertXsToIndices(byte conversion[], byte indices[],byte length) {
+void convertXsToIndices(byte conversion[], byte indices[], byte length) {
   signed char largestindex = -1;
-  byte tempindex=0;
+  byte tempindex = 0;
   for (byte i = 0; i < length; i++) {
     if (conversion[i] < X && largestindex < conversion[i]) {
       largestindex = conversion[i];
-     
     }
   }
   //need to start at the next index.
@@ -1519,7 +1556,7 @@ void convertXsToIndices(byte conversion[], byte indices[],byte length) {
       tempindex++;
     }
   }
-  indices[0] = (byte) largestindex;
+  indices[0] = (byte)largestindex;
   indices[1] = tempindex;
 }
 //Places X values into the float array values.  Indices is the starting point for where the x positions are and the ending point.
@@ -1535,16 +1572,15 @@ float GetResults(float results[], float XValues[], char charExpression[], byte R
   byte conversion[80];
   byte length = 0;
   //since we're taking in 250 float values we can change the magnitude of the x-values.
-  if (scale<4){
-  scale*=2;
-  }
-  else {
-    scale*=1.3;
+  if (scale < 4) {
+    scale *= 2;
+  } else {
+    scale *= 1.3;
   }
   length = SetbyteExpression(charExpression, values, conversion);
   byte LargestIndices[2];
   float SpecificXValue = 0;
-  convertXsToIndices(conversion, LargestIndices,length);
+  convertXsToIndices(conversion, LargestIndices, length);
   for (byte i = 0; i < RunThisManyTimes / 2; i++) {
     PlaceXValues(values, LargestIndices, SpecificXValue);
     results[i] = postfixevaulation(length, conversion, values);

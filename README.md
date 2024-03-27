@@ -1,6 +1,6 @@
 The purpose of this project is to create a graphing calculator by using an Arduino Mega 2560, SN74HC165N shift registers, and the SSD1306 OLED screen (and lots of wires).
-The calculator can graph most expressions you type in.  This includes polynomials and sine (working on cosine and tangent as of now).
-It can also evaluate numerical expressions (and also has sine as an operator).
+The calculator can graph most expressions you type in.  This includes polynomials and trig functions.
+It can also evaluate numerical expressions.
 The display I am using is the SSD1306 OLED screen (the size for reference is 0.96 inches).  It is 128x64.
 Graphing is accomplished by drawing lines (via the graphing library made by adafruit) on the OLED over a sequence of points.  
 Polynomials of integer powers (both positive and negative) can be graphed along with the sine function, although if your function grows too slowly it may not be able to finished drawing it (it graphs only 250 points).
@@ -20,6 +20,8 @@ Sin(1/x)
 
 Csc(x) (1/sin(x)).
 ![thumbnail_1000002505](https://github.com/TimothyMarchant/Graphing-Calculator/assets/124601612/07f42294-ebb8-4028-b9db-ee9b300cf22d)
+tan(x)
+![image](https://github.com/TimothyMarchant/Graphing-Calculator/assets/124601612/3cb6dfd1-2603-4e21-9010-5f44316a87c4)
 
 Normal calculation (yes 1+1 does in fact  equal 2).
 ![IMG_20240218_003935751](https://github.com/TimothyMarchant/Graphing-Calculator/assets/124601612/3a4dca75-90c8-4467-a8f7-c9bf6855e1fc)
